@@ -1,5 +1,5 @@
 import React from 'react';
-import { CURRENCIES } from '../utils/navEngine';
+import { CURRENCIES, generateUserCode } from '../utils/navEngine';
 
 export default function Navbar({ 
   activeTab, 
@@ -40,6 +40,8 @@ export default function Navbar({
   const userDisplay = isGuest 
     ? 'Guest' 
     : (currentUser?.user_metadata?.full_name || currentUser?.email?.split('@')[0] || 'User');
+
+  const myUserCode = generateUserCode(currentUser?.email || (isGuest ? 'guest@syndicate.me' : 'milan@invest.me'));
 
   const isInvestorView = perspective === 'investor' || fundInfo?.userRole === 'investor';
   const isActualManager = fundInfo?.isOwner || fundInfo?.userRole === 'manager';
@@ -216,9 +218,27 @@ export default function Navbar({
               </button>
             )}
 
-            {/* User Session & Lock */}
+            {/* User Session & Unique User Code */}
             {onSignOut && (
-              <div className="user-auth-cluster">
+              <div className="user-auth-cluster flex items-center gap-1">
+                {myUserCode && (
+                  <button
+                    type="button"
+                    className="badge badge-neutral mono"
+                    title="Click to copy your unique User Code for your Fund Manager"
+                    style={{ cursor: 'pointer', padding: '3px 7px', fontSize: 10 }}
+                    onClick={() => {
+                      if (navigator.clipboard) {
+                        navigator.clipboard.writeText(myUserCode);
+                        alert(`Your Unique User Code (${myUserCode}) was copied to clipboard! Share it with your Fund Manager.`);
+                      } else {
+                        prompt('Your User Code:', myUserCode);
+                      }
+                    }}
+                  >
+                    CODE: {myUserCode}
+                  </button>
+                )}
                 <span 
                   className="badge badge-neutral mono user-chip"
                   title={currentUser?.email || (isGuest ? 'Guest Mode' : 'Authenticated')}

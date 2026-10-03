@@ -128,7 +128,6 @@ export default function SyndicateView({
       <div className="member-cards-grid">
         {fundMetrics.members.map((member) => {
           const isThisMe = member.isMe || (userEmail && member.email && member.email.toLowerCase().trim() === userEmail);
-          const isPending = member.status === 'invited';
           const displayName = (isInvestor && !isThisMe && member.relationship !== 'self') 
             ? `Co-Investor (${member.role || 'Member'})` 
             : member.name;
@@ -149,9 +148,16 @@ export default function SyndicateView({
                       </span>
                     )}
                   </div>
-                  <span className="text-xs text-muted block mt-0.5">
-                    {member.role}
-                  </span>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-xs text-muted">
+                      {member.role}
+                    </span>
+                    {member.userCode && (
+                      <span className="badge badge-neutral mono text-xs" style={{ fontSize: 9, padding: '1px 5px' }}>
+                        {member.userCode}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="shrink-0">
                   <span className="badge badge-neutral mono font-semibold">
@@ -159,50 +165,6 @@ export default function SyndicateView({
                   </span>
                 </div>
               </div>
-
-              {isPending && (
-                <div className="member-pending-strip">
-                  <div className="member-pending-strip-top">
-                    <span className="badge badge-warning mono font-semibold" style={{ fontSize: 9, padding: '1px 5px' }}>
-                      INVITED (PENDING)
-                    </span>
-                    <span className="text-xs text-muted">Awaiting handshake</span>
-                  </div>
-                  {!isInvestor && (
-                    <div className="member-pending-strip-actions">
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm mono flex-1"
-                        style={{ padding: '3px 8px', fontSize: 11 }}
-                        title="Copy invitation link & message to send to your friend"
-                        onClick={() => {
-                          const appUrl = window.location.origin;
-                          const msg = `Hey ${member.name}! I've invited you to join my investment syndicate on SyndicateOS. Open this link, sign in with your email (${member.email}), and accept your invite: ${appUrl}`;
-                          if (navigator.clipboard) {
-                            navigator.clipboard.writeText(msg);
-                            alert(`Invite message copied to clipboard! Send this to ${member.name} via WhatsApp or Email.`);
-                          } else {
-                            prompt('Copy this invite message:', msg);
-                          }
-                        }}
-                      >
-                        Copy Invite
-                      </button>
-                      {member.relationship !== 'self' && onDeleteMember && (
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-sm btn-danger-subtle"
-                          style={{ padding: '3px 8px', fontSize: 11 }}
-                          title={`Cancel invitation for ${member.name}`}
-                          onClick={() => setMemberForDeletion(member)}
-                        >
-                          Cancel
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
 
               <div className="member-box-data">
                 <div className="data-col">
@@ -242,7 +204,7 @@ export default function SyndicateView({
                   >
                     Statement
                   </button>
-                  {!isInvestor && !isPending && member.relationship !== 'self' && onDeleteMember && (
+                  {!isInvestor && member.relationship !== 'self' && onDeleteMember && (
                     <button
                       type="button"
                       className="btn btn-secondary btn-sm btn-danger-subtle"

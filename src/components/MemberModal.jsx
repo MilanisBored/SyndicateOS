@@ -1,141 +1,154 @@
 import React, { useState } from 'react';
+import { generateUserCode, normalizeUserCode } from '../utils/navEngine';
 
 export default function MemberModal({ onAddMember, onClose }) {
   const [name, setName] = useState('');
-  const [relationship, setRelationship] = useState('friend');
+  const [relationship, setRelationship] = useState('investor');
   const [role, setRole] = useState('Investor');
   const [email, setEmail] = useState('');
+  const [userCode, setUserCode] = useState('');
   const [notes, setNotes] = useState('');
-  const [createdInvite, setCreatedInvite] = useState(null);
-  const [copied, setCopied] = useState(false);
+  const [validationError, setValidationError] = useState('');
+
+  const trimmedEmail = email.trim().toLowerCase();
+  const expectedCode = trimmedEmail ? generateUserCode(trimmedEmail) : '';
+  const normalizedInputCode = userCode ? normalizeUserCode(userCode) : '';
+  const isCodeMatch = Boolean(expectedCode && normalizedInputCode && normalizedInputCode === expectedCode);
+  const isCodeMismatch = Boolean(expectedCode && normalizedInputCode && normalizedInputCode !== expectedCode);
+
+  const handleAutoFillCode = () => {
+    if (expectedCode) {
+      setUserCode(expectedCode);
+      setValidationError('');
+    }
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    setValidationError('');
+
+    if (!name.trim()) {
+      setValidationError('Please enter the participant full name.');
+      return;
+    }
+    if (!trimmedEmail) {
+      setValidationError('Please enter the investor Gmail / email address.');
+      return;
+    }
+    if (!normalizedInputCode) {
+      setValidationError('Please enter the investor Unique User Code (e.g. USR-XXXXXX).');
+      return;
+    }
 
     const newMember = {
       id: `mem_${Date.now()}`,
       name: name.trim(),
       relationship,
       role: role.trim() || 'Investor',
-      email: email.trim(),
+      email: trimmedEmail,
+      userCode: normalizedInputCode,
       notes: notes.trim(),
+      status: 'active', // Immediately active, no handshake needed
     };
 
     onAddMember(newMember);
-
-    // If an email was provided, show shareable invite card
-    if (newMember.email && newMember.relationship !== 'self') {
-      setCreatedInvite(newMember);
-    } else {
-      onClose();
-    }
-  };
-
-  const getInviteMessage = () => {
-    const appUrl = window.location.origin;
-    return `Hey ${createdInvite?.name}! I've invited you to join our syndicate pool on SyndicateOS. Open this link, sign in with your email (${createdInvite?.email}), and review/accept your invitation: ${appUrl}`;
-  };
-
-  const handleCopyLink = () => {
-    const msg = getInviteMessage();
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(msg);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
-    } else {
-      prompt('Copy this invite message:', msg);
-    }
-  };
-
-  const handleWhatsAppShare = () => {
-    const msg = encodeURIComponent(getInviteMessage());
-    window.open(`https://wa.me/?text=${msg}`, '_blank');
-  };
-
-  const handleEmailShare = () => {
-    const subject = encodeURIComponent(`Invitation to join Syndicate Pool on SyndicateOS`);
-    const body = encodeURIComponent(getInviteMessage());
-    window.open(`mailto:${createdInvite?.email}?subject=${subject}&body=${body}`, '_blank');
+    onClose();
   };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        {createdInvite ? (
+      <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px' }}>
+        <div className="section-head mb-3">
           <div>
-            <div className="section-head mb-3">
-              <div>
-                <span className="section-title">Syndicate Invitation Created</span>
-                <span className="text-xs text-profit block mt-1">Added to syndicate roster</span>
-              </div>
-              <button type="button" className="btn btn-secondary btn-sm mono" onClick={onClose}>Close</button>
-            </div>
-
-            <div className="card p-3 mb-3" style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border-color)' }}>
-              <span className="font-semibold text-xs block text-primary mb-1">
-                Participant: {createdInvite.name} ({createdInvite.email})
-              </span>
-              <p className="text-xs text-muted leading-relaxed mb-3">
-                Since automated email services require external mail API keys, send your friend this direct invite message via WhatsApp or Email so they can sign in and accept their invitation:
-              </p>
-
-              <div className="p-2 card text-xs mono mb-3" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)' }}>
-                {getInviteMessage()}
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm flex items-center justify-center mono"
-                  onClick={handleCopyLink}
-                >
-                  {copied ? 'Copied to Clipboard' : 'Copy Invite Message'}
-                </button>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm flex-1 mono"
-                    onClick={handleWhatsAppShare}
-                  >
-                    Share via WhatsApp
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm flex-1 mono"
-                    onClick={handleEmailShare}
-                  >
-                    Share via Email
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex justify-end">
-              <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>
-                Done
-              </button>
-            </div>
+            <h3 className="section-title">Add Syndicate Participant</h3>
+            <span className="text-xs text-muted block">
+              Directly links an investor using their Gmail and Unique User Code.
+            </span>
           </div>
-        ) : (
-          <div>
-            <div className="section-head mb-3">
-              <span className="section-title">Add Participant</span>
-              <button type="button" className="btn btn-secondary btn-sm mono" onClick={onClose}>Close</button>
-            </div>
+          <button type="button" className="btn btn-secondary btn-sm mono" onClick={onClose}>
+            Close
+          </button>
+        </div>
 
-            <form onSubmit={handleSubmit}>
+        {validationError && (
+          <div className="p-2 mb-3 bg-loss-subtle text-loss text-xs rounded mono">
+            {validationError}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label className="form-label">Full Name</label>
             <input
               type="text"
-              placeholder="e.g. Priya Sharma"
+              placeholder="e.g. Parul Sehrawat"
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="form-input"
               required
               autoFocus
             />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">
+              Investor Gmail / Email Address
+            </label>
+            <input
+              type="email"
+              placeholder="investor@gmail.com"
+              value={email}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                setValidationError('');
+              }}
+              className="form-input"
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <div className="flex justify-between items-center mb-1">
+              <label className="form-label" style={{ marginBottom: 0 }}>
+                Unique User Code
+              </label>
+              {expectedCode && (
+                <button
+                  type="button"
+                  onClick={handleAutoFillCode}
+                  className="btn btn-secondary btn-sm mono"
+                  style={{ fontSize: 10, padding: '1px 6px' }}
+                >
+                  Auto-fill Expected Code
+                </button>
+              )}
+            </div>
+            <input
+              type="text"
+              placeholder={expectedCode ? `e.g. ${expectedCode}` : "e.g. USR-9CC360"}
+              value={userCode}
+              onChange={(e) => {
+                setUserCode(e.target.value.toUpperCase());
+                setValidationError('');
+              }}
+              className="form-input mono"
+              required
+            />
+            <div className="mt-1 flex items-center justify-between text-xs">
+              <span className="text-muted">
+                Each investor has a unique 6-character user code shown on their SyndicateOS screen.
+              </span>
+            </div>
+            {isCodeMatch && (
+              <span className="badge badge-profit mono text-xs mt-1 inline-block">
+                VERIFIED: Code matches investor Gmail
+              </span>
+            )}
+            {isCodeMismatch && (
+              <span className="badge badge-warning mono text-xs mt-1 inline-block">
+                NOTICE: Expected {expectedCode} for this Gmail
+              </span>
+            )}
           </div>
 
           <div className="form-row">
@@ -155,7 +168,7 @@ export default function MemberModal({ onAddMember, onClose }) {
             </div>
 
             <div className="form-group">
-              <label className="form-label">Role</label>
+              <label className="form-label">Role Title</label>
               <input
                 type="text"
                 placeholder="e.g. Investor, LP, Partner"
@@ -167,23 +180,7 @@ export default function MemberModal({ onAddMember, onClose }) {
           </div>
 
           <div className="form-group">
-            <label className="form-label">
-              Investor Login Email <span className="text-muted text-xs font-normal">(Generates syndicate invitation)</span>
-            </label>
-            <input
-              type="email"
-              placeholder="investor@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="form-input"
-            />
-            <span className="text-xs text-muted block mt-1">
-              Adding this email generates a pending invitation. The member must explicitly verify and accept the syndicate terms before accessing the pool.
-            </span>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">Notes / Terms</label>
+            <label className="form-label">Notes / Syndicate Terms</label>
             <input
               type="text"
               placeholder="e.g. Profit split, lock-in period, goals"
@@ -193,31 +190,29 @@ export default function MemberModal({ onAddMember, onClose }) {
             />
           </div>
 
-          {/* Security and Confidentiality Assurance */}
+          {/* Privacy Guarantee Note */}
           <div 
             className="p-3 mb-3 card text-xs mono" 
-            style={{ background: 'rgba(99, 102, 241, 0.05)', border: '1px solid rgba(99, 102, 241, 0.2)' }}
+            style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border-subtle)' }}
           >
-            <div className="font-semibold text-primary mb-1 flex items-center gap-1">
-              <span>DISCRETIONARY MANDATE & PORTFOLIO PRIVACY</span>
-            </div>
+            <span className="font-semibold text-primary mb-1 block">
+              DIRECT INVESTOR LINKING
+            </span>
             <span className="text-muted block leading-relaxed">
-              Your specific stock picks, buy levels, and broker notes will remain <strong>strictly confidential</strong> from this investor unless you switch to transparent mode in Settings. Investors only track unitized NAV and asset class breakdown.
+              Upon saving, this participant is immediately active with verified unit accounting. No handshake or invitation acceptance is required.
             </span>
           </div>
 
           <div className="flex justify-end gap-2 mt-4 pt-3" style={{ borderTop: '1px solid var(--border-subtle)' }}>
-            <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>
+            <button type="button" className="btn btn-secondary btn-sm mono" onClick={onClose}>
               Cancel
             </button>
-            <button type="submit" className="btn btn-primary btn-sm">
-              Save Member
+            <button type="submit" className="btn btn-primary btn-sm mono">
+              Save & Link Member
             </button>
           </div>
         </form>
       </div>
-      )}
     </div>
-  </div>
-);
+  );
 }

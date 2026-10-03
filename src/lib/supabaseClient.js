@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { generateUserCode } from '../utils/navEngine';
 
 export function cleanSupabaseUrl(input) {
   if (!input) return '';
@@ -146,21 +147,12 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
     const allIncomes = incomesRes.status === 'fulfilled' && !incomesRes.value.error ? (incomesRes.value.data || []) : [];
     const allSoloAssets = soloAssetsRes.status === 'fulfilled' && !soloAssetsRes.value.error ? (soloAssetsRes.value.data || []) : [];
 
-    // Helper to determine member verification status
-    function parseMemberStatus(m) {
-      if (!m) return 'active';
-      const rel = (m.relationship || '').toLowerCase();
-      const role = (m.role || '').toLowerCase();
-      if (rel === 'self' || role === 'manager') return 'active';
-      if (m.status) return m.status;
-      const note = m.notes || m.note || '';
-      if (note.includes('[STATUS: invited]')) return 'invited';
-      if (note.includes('[STATUS: declined]')) return 'declined';
-      if (note.includes('[STATUS: active]')) return 'active';
+    // All members are actively linked upon addition with their User Code & Gmail
+    function parseMemberStatus() {
       return 'active';
     }
 
-    // Filter accessible funds for this user & collect pending invitations
+    // Filter accessible funds for this user
     let accessibleFunds = [];
     const pendingInvitations = [];
 
@@ -170,47 +162,18 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
     } else {
       // Authenticated with email:
       // 1. Funds where user is manager/owner
-      // 2. Funds where user is verified active member (NOT unverified pending invitation)
+      // 2. Funds where user is linked by email as an active investor in this fund's members
       accessibleFunds = allFunds.filter(f => {
         const ownerEmail = (f.owner_email || '').toLowerCase().trim();
         if (ownerEmail && ownerEmail === userEmail) return true;
         if (f.owner_id && userId && f.owner_id === userId) return true;
 
-        // Check if user is linked by email as an investor in this fund's members
+        // Check if user is linked by email in this fund's members
         const myMemberRecords = allMembers.filter(m => 
           m.fund_id === f.id && m.email && m.email.toLowerCase().trim() === userEmail
         );
-
-        for (const m of myMemberRecords) {
-          const status = parseMemberStatus(m);
-          if (status === 'active') {
-            return true;
-          }
-        }
-
-        return false;
+        return myMemberRecords.length > 0;
       });
-
-      // Find any invitations pending verification for this user
-      const myInvitedMembers = allMembers.filter(m => {
-        if (!m.email || m.email.toLowerCase().trim() !== userEmail) return false;
-        return parseMemberStatus(m) === 'invited';
-      });
-
-      for (const m of myInvitedMembers) {
-        const f = allFunds.find(fundItem => fundItem.id === m.fund_id);
-        if (f && !pendingInvitations.some(p => p.memberId === m.id)) {
-          pendingInvitations.push({
-            memberId: m.id,
-            fundId: f.id,
-            fundName: f.name || 'Syndicate Pool',
-            managerName: f.manager_name || 'Fund Manager',
-            currency: f.currency || 'INR',
-            invitedEmail: m.email,
-            date: m.created_at || new Date().toISOString()
-          });
-        }
-      }
     }
 
     // Auto-create a clean, private fund profile for new users with no accessible funds and no pending invitations
@@ -261,14 +224,23 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
     const rawMembers = allMembers.filter(m => !activeFundId || m.fund_id === activeFundId);
     const members = rawMembers.map(m => {
       const isMe = userEmail && m.email && m.email.toLowerCase().trim() === userEmail;
+      let userCodeVal = m.user_code || '';
+      if (!userCodeVal && m.notes) {
+        const match = m.notes.match(/\[USER_CODE:\s*([\w-]+)\]/i);
+        if (match && match[1]) userCodeVal = match[1];
+      }
+      if (!userCodeVal && m.email) {
+        userCodeVal = generateUserCode(m.email);
+      }
       return {
         id: m.id,
         name: m.name || 'Member',
         relationship: (m.relationship || 'friend').toLowerCase(),
         role: m.role || 'Investor',
         email: m.email || '',
+        userCode: userCodeVal,
         notes: m.notes || m.note || '',
-        status: parseMemberStatus(m),
+        status: 'active',
         isMe: Boolean(isMe),
       };
     });
@@ -640,27 +612,41 @@ export async function insertMemberToSupabase(member, fundId) {
     }
   }
 
-  const isSelf = (member.relationship || '').toLowerCase() === 'self' || (member.role || '').toLowerCase() === 'manager';
-  const initialStatus = isSelf ? 'active' : 'invited';
-
+  const userCodeVal = member.userCode || (member.email ? generateUserCode(member.email) : '');
   let notesVal = member.notes || '';
-  if (!isSelf && !notesVal.includes('[STATUS:')) {
-    notesVal = notesVal ? `${notesVal} [STATUS: invited]` : `[STATUS: invited]`;
-  } else if (isSelf && !notesVal.includes('[STATUS:')) {
-    notesVal = notesVal ? `${notesVal} [STATUS: active]` : `[STATUS: active]`;
+  if (userCodeVal && !notesVal.includes('[USER_CODE:')) {
+    notesVal = notesVal ? `${notesVal} [USER_CODE: ${userCodeVal}]` : `[USER_CODE: ${userCodeVal}]`;
+  }
+  if (!notesVal.includes('[STATUS: active]')) {
+    notesVal = `${notesVal} [STATUS: active]`.trim();
   }
 
   const payload = {
     name: member.name,
-    relationship: member.relationship || 'friend',
+    relationship: member.relationship || 'investor',
     role: member.role || 'Investor',
     email: member.email || null,
     notes: notesVal || null,
-    status: initialStatus,
+    status: 'active',
   };
+  if (userCodeVal) payload.user_code = userCodeVal;
   if (activeFundId) payload.fund_id = activeFundId;
 
   let { data, error } = await sb.from('members').insert([payload]).select().single();
+  if (error && (error.message?.includes('user_code') || error.code === '42703')) {
+    delete payload.user_code;
+    const retry = await sb.from('members').insert([payload]).select().single();
+    if (retry.error) {
+      if (retry.error.message?.includes('status') || retry.error.code === '42703') {
+        delete payload.status;
+        const retry2 = await sb.from('members').insert([payload]).select().single();
+        if (retry2.error) throw retry2.error;
+        return retry2.data;
+      }
+      throw retry.error;
+    }
+    return retry.data;
+  }
   if (error && (error.message?.includes('status') || error.code === '42703')) {
     delete payload.status;
     const retry = await sb.from('members').insert([payload]).select().single();

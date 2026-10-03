@@ -539,3 +539,32 @@ Ownership Share:   ${formatNumber(member.ownershipPct, 2)}%
 Accounting: Unitized NAV pool`;
 }
 
+/**
+ * Generates a unique, deterministic 6-character User Code for an investor (e.g. USR-A7F92B)
+ * based on their email or user ID.
+ */
+export function generateUserCode(emailOrId) {
+  if (!emailOrId) return '';
+  const seed = String(emailOrId).toLowerCase().trim();
+  let hash = 5381;
+  for (let i = 0; i < seed.length; i++) {
+    hash = ((hash << 5) + hash) + seed.charCodeAt(i);
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  const hex = Math.abs(hash).toString(16).toUpperCase().padStart(6, '0').slice(-6);
+  return `USR-${hex}`;
+}
+
+/**
+ * Normalizes user code input (ensures USR- prefix and uppercase)
+ */
+export function normalizeUserCode(input) {
+  if (!input) return '';
+  let str = input.trim().toUpperCase();
+  if (!str.startsWith('USR-')) {
+    str = `USR-${str.replace(/^USR[-_]?/i, '')}`;
+  }
+  return str;
+}
+
+
