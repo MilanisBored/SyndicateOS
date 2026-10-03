@@ -181,7 +181,7 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
     let accessibleFunds = [];
     const pendingInvitations = [];
 
-    if (!userEmail || userEmail === 'milan@localhost' || userEmail === 'dev@localhost') {
+    if (!userEmail || userEmail === 'dev@localhost' || userEmail.endsWith('@localhost')) {
       // Local development or unauthenticated: access all available funds
       accessibleFunds = allFunds;
     } else {

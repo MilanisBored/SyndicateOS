@@ -76,7 +76,7 @@ export default function CreateFundModal({ isOpen, onClose, onCreateFund, current
               <label className="form-label">Fund Manager Name</label>
               <input
                 type="text"
-                placeholder="e.g. Milan"
+                placeholder="e.g. Fund Manager"
                 value={managerName}
                 onChange={(e) => setManagerName(e.target.value)}
                 className="form-input"

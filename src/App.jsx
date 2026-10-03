@@ -79,7 +79,7 @@ export default function App() {
   const [session, setSession] = useState(() => {
     if (initialCachedSession) return initialCachedSession;
     if (isLocalDev) {
-      return { user: { email: 'milan@localhost', user_metadata: { full_name: 'Milan (Local Dev)' } } };
+      return { user: { email: 'dev@localhost', user_metadata: { full_name: 'Developer' } } };
     }
     return null;
   });
@@ -105,7 +105,7 @@ export default function App() {
               localStorage.setItem('syndicate_cached_session', JSON.stringify(currentSession));
             } catch (e) {}
           } else if (isLocalDev) {
-            setSession((prev) => prev || { user: { email: 'milan@localhost', user_metadata: { full_name: 'Milan (Local Dev)' } } });
+            setSession((prev) => prev || { user: { email: 'dev@localhost', user_metadata: { full_name: 'Developer' } } });
             setViewMode('app');
           } else {
             setSession(null);
@@ -136,7 +136,7 @@ export default function App() {
             window.history.replaceState(null, document.title, window.location.pathname + window.location.search);
           }
         } else if (isLocalDev) {
-          setSession({ user: { email: 'milan@localhost', user_metadata: { full_name: 'Milan (Local Dev)' } } });
+          setSession({ user: { email: 'dev@localhost', user_metadata: { full_name: 'Developer' } } });
           setViewMode('app');
         } else {
           setSession(null);

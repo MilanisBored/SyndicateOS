@@ -41,7 +41,7 @@ export default function Navbar({
     ? 'Guest' 
     : (currentUser?.user_metadata?.full_name || currentUser?.email?.split('@')[0] || 'User');
 
-  const myUserCode = generateUserCode(currentUser?.email || (isGuest ? 'guest@syndicate.me' : 'milan@invest.me'));
+  const myUserCode = generateUserCode(currentUser?.email || (isGuest ? 'guest@syndicate.internal' : 'user@syndicate.internal'));
 
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);

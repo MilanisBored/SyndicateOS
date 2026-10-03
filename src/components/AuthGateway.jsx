@@ -334,7 +334,7 @@ export default function AuthGateway({ onAuthenticated, onGuestAccess, onBackToLa
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="e.g. milan@syndicate.io"
+              placeholder="e.g. user@example.com"
               className="form-input"
               required
               autoFocus

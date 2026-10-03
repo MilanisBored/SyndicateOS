@@ -75,7 +75,7 @@ export default function MemberModal({ onAddMember, onClose }) {
             <label className="form-label">Full Name</label>
             <input
               type="text"
-              placeholder="e.g. Parul Sehrawat"
+              placeholder="e.g. Investor Full Name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="form-input"
@@ -107,7 +107,7 @@ export default function MemberModal({ onAddMember, onClose }) {
             </label>
             <input
               type="text"
-              placeholder="e.g. USR-9CC360"
+              placeholder="e.g. USR-XXXXXX"
               value={userCode}
               onChange={(e) => {
                 setUserCode(e.target.value.toUpperCase());

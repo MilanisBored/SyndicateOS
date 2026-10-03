@@ -15,7 +15,7 @@ export const CURRENCIES = {
 export const CLEAN_EMPTY_DATA = {
   fundInfo: {
     name: "My Syndicate Fund",
-    managerName: "Milan",
+    managerName: "Manager",
     initialNav: 100.0,
     currency: "INR",
   },
@@ -31,7 +31,7 @@ export const CLEAN_EMPTY_DATA = {
 export const INITIAL_DEMO_DATA = {
   fundInfo: {
     name: "Apex Growth Syndicate",
-    managerName: "Milan (Me)",
+    managerName: "Fund Manager",
     initialNav: 100.0,
     currency: "INR",
     createdDate: "2026-01-15",
@@ -39,38 +39,38 @@ export const INITIAL_DEMO_DATA = {
   members: [
     {
       id: "mem_self",
-      name: "Milan (Me)",
+      name: "Fund Manager (Lead)",
       role: "Manager & Owner",
       relationship: "self",
       color: "#6366f1",
-      email: "milan@invest.me",
-      notes: "Primary fund manager. Contributing monthly salary surplus.",
+      email: "manager@syndicate.internal",
+      notes: "Primary fund manager.",
     },
     {
       id: "mem_partner",
-      name: "Priya (Girlfriend)",
+      name: "Partner Investor",
       role: "Partner",
       relationship: "partner",
       color: "#ec4899",
-      email: "priya@gmail.com",
+      email: "partner@syndicate.internal",
       notes: "Long-term investment for joint travel & future goals.",
     },
     {
       id: "mem_alex",
-      name: "Alex (College Friend)",
+      name: "Syndicate Member A",
       role: "Investor",
       relationship: "friend",
       color: "#10b981",
-      email: "alex.tech@example.com",
-      notes: "Invests lump sums quarterly; withdrew partial for vacation in June.",
+      email: "investor.a@syndicate.internal",
+      notes: "Invests quarterly; withdrew partial for vacation in June.",
     },
     {
       id: "mem_sam",
-      name: "Sameer (Colleague)",
+      name: "Syndicate Member B",
       role: "Investor",
       relationship: "friend",
       color: "#f59e0b",
-      email: "sameer.c@work.com",
+      email: "investor.b@syndicate.internal",
       notes: "Joined in March after seeing fund performance.",
     },
   ],
@@ -83,7 +83,7 @@ export const INITIAL_DEMO_DATA = {
       amount: 100000,
       nav: 100.0,
       units: 1000.0,
-      note: "Initial seed capital by Milan",
+      note: "Initial seed capital by Manager",
     },
     {
       id: "tx_2",
@@ -93,7 +93,7 @@ export const INITIAL_DEMO_DATA = {
       amount: 50000,
       nav: 100.0,
       units: 500.0,
-      note: "Priya initial contribution",
+      note: "Partner initial contribution",
     },
     {
       id: "tx_3",
@@ -103,7 +103,7 @@ export const INITIAL_DEMO_DATA = {
       amount: 60000,
       nav: 100.0,
       units: 600.0,
-      note: "Alex first deposit",
+      note: "Member A first deposit",
     },
     {
       id: "tx_4",
@@ -122,8 +122,8 @@ export const INITIAL_DEMO_DATA = {
       memberId: "mem_sam",
       amount: 50000,
       nav: 115.238,
-      units: 433.885, // 50000 / 115.238 => Sameer buys at higher NAV (fair!)
-      note: "Sameer joins the syndicate at NAV 115.24",
+      units: 433.885, // 50000 / 115.238 => Member B buys at higher NAV (fair!)
+      note: "Member B joins the syndicate at NAV 115.24",
     },
     {
       id: "tx_6",
@@ -133,7 +133,7 @@ export const INITIAL_DEMO_DATA = {
       amount: 40000,
       nav: 115.238,
       units: 347.108,
-      note: "Milan monthly SIP from March salary bonus",
+      note: "Manager monthly contribution",
     },
     {
       id: "tx_7",
@@ -152,8 +152,8 @@ export const INITIAL_DEMO_DATA = {
       memberId: "mem_alex",
       amount: 25000,
       nav: 131.899,
-      units: 189.539, // Redeemed at 131.899 => Alex cashes out profit fairly without hurting others!
-      note: "Alex withdrew ₹25,000 for European summer vacation",
+      units: 189.539, // Redeemed at 131.899 => cashes out profit fairly without hurting others
+      note: "Member A partial redemption for summer vacation",
     },
     {
       id: "tx_9",
@@ -163,7 +163,7 @@ export const INITIAL_DEMO_DATA = {
       amount: 30000,
       nav: 131.899,
       units: 227.447,
-      note: "Priya mid-year bonus allocation",
+      note: "Partner mid-year bonus allocation",
     },
     {
       id: "tx_10",
@@ -277,14 +277,14 @@ export function computeFundState(fundInfo, members, transactions, holdings = [])
         if (idMatch && memberStats[idMatch.id]) return memberStats[idMatch.id];
       }
 
-      // 3. Member Name match (e.g. Parul Sehrawat, Milan Chetry)
+      // 3. Member Name match (e.g. John Doe, Alex Smith)
       const nameToMatch = (tx.memberName || '').trim().toLowerCase();
       if (nameToMatch) {
         const nameMatch = members.find(m => m.name.trim().toLowerCase() === nameToMatch);
         if (nameMatch && memberStats[nameMatch.id]) return memberStats[nameMatch.id];
       }
 
-      // 4. Note / Memo mention of member name (e.g. "Deposit by Parul Sehrawat")
+      // 4. Note / Memo mention of member name (e.g. "Deposit by John Doe")
       if (tx.note) {
         const noteLower = tx.note.toLowerCase();
         const noteMatch = members.find(m => noteLower.includes(m.name.toLowerCase()));
