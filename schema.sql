@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS funds (
 -- Ensure columns exist if table was already created
 ALTER TABLE funds ADD COLUMN IF NOT EXISTS owner_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
 ALTER TABLE funds ADD COLUMN IF NOT EXISTS owner_email TEXT;
+ALTER TABLE funds ADD COLUMN IF NOT EXISTS portfolio_visibility TEXT DEFAULT 'private';
 
 -- 2. Syndicate Members (Investors, Partners, Friends linked by Email)
 CREATE TABLE IF NOT EXISTS members (
@@ -41,8 +42,12 @@ CREATE TABLE IF NOT EXISTS members (
     role TEXT NOT NULL DEFAULT 'Investor',
     email TEXT,
     notes TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Ensure status column exists if table was already created
+ALTER TABLE members ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active';
 
 -- Ensure check constraint allows all modern relationships
 ALTER TABLE members DROP CONSTRAINT IF EXISTS members_relationship_check;
@@ -130,7 +135,7 @@ ALTER TABLE personal_solo_assets ADD COLUMN IF NOT EXISTS user_email TEXT;
 -- SECURITY DEFINER HELPER FUNCTIONS (PREVENTS RLS RECURSION)
 -- ==========================================================================
 
--- Function 1: Get all fund IDs where a user is an invited member / investor
+-- Function 1: Get all fund IDs where a user is a verified active member / investor
 CREATE OR REPLACE FUNCTION public.get_member_fund_ids(p_email TEXT)
 RETURNS SETOF UUID
 LANGUAGE sql
@@ -139,10 +144,12 @@ SET search_path = public
 STABLE
 AS $$
     SELECT fund_id FROM members 
-    WHERE p_email IS NOT NULL AND lower(email) = lower(p_email);
+    WHERE p_email IS NOT NULL 
+      AND lower(email) = lower(p_email)
+      AND COALESCE(status, 'active') = 'active';
 $$;
 
--- Function 2: Check if user can access a fund (as manager OR as invited investor)
+-- Function 2: Check if user can access a fund (as manager OR as verified active investor)
 CREATE OR REPLACE FUNCTION public.can_access_fund(p_fund_id UUID, p_uid UUID, p_email TEXT)
 RETURNS BOOLEAN
 LANGUAGE sql
@@ -160,11 +167,12 @@ AS $$
           )
     )
     OR EXISTS (
-        -- User is linked as an investor in this fund's members
+        -- User is linked as an active verified investor in this fund's members
         SELECT 1 FROM members 
         WHERE fund_id = p_fund_id 
           AND p_email IS NOT NULL 
           AND lower(email) = lower(p_email)
+          AND COALESCE(status, 'active') = 'active'
     );
 $$;
 

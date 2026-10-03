@@ -128,6 +128,11 @@ export default function SyndicateView({
       <div className="member-cards-grid">
         {fundMetrics.members.map((member) => {
           const isThisMe = member.isMe || (userEmail && member.email && member.email.toLowerCase().trim() === userEmail);
+          const isPending = member.status === 'invited';
+          const displayName = (isInvestor && !isThisMe && member.relationship !== 'self') 
+            ? `Co-Investor (${member.role || 'Member'})` 
+            : member.name;
+
           return (
             <div 
               key={member.id} 
@@ -137,14 +142,22 @@ export default function SyndicateView({
               <div className="member-box-head">
                 <div>
                   <span className="font-semibold text-base flex items-center gap-2">
-                    {member.name}
+                    {displayName}
                     {isThisMe && (
                       <span className="badge badge-profit mono" style={{ fontSize: 9, padding: '1px 5px' }}>
                         You
                       </span>
                     )}
+                    {isPending && (
+                      <span className="badge badge-warning mono font-semibold" style={{ fontSize: 9, padding: '1px 5px' }}>
+                        INVITED (PENDING)
+                      </span>
+                    )}
                   </span>
-                  <span className="text-xs text-muted">{member.role}</span>
+                  <span className="text-xs text-muted">
+                    {member.role}
+                    {isPending && ' • Awaiting member handshake'}
+                  </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="badge badge-neutral mono font-semibold">

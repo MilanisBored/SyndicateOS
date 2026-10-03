@@ -313,6 +313,41 @@ export default function SettingsView({
               ))}
             </select>
           </div>
+
+          <div className="form-group">
+            <label className="form-label">
+              Investor Portfolio Visibility
+              <span className="text-muted text-xs font-normal ml-1">(Discretionary Mandate Protection)</span>
+            </label>
+            <select
+              value={fundInfo.portfolioVisibility || 'private'}
+              onChange={async (e) => {
+                const updated = { ...fundInfo, portfolioVisibility: e.target.value };
+                setFundInfo(updated);
+                if (isConnected && fundInfo.id) {
+                  try {
+                    await updateFundInSupabase(fundInfo.id, updated);
+                  } catch (err) {
+                    console.warn('Could not sync portfolio visibility:', err);
+                  }
+                }
+              }}
+              className="form-select"
+            >
+              <option value="private">
+                🔒 Private / Confidential (Recommended - Discretionary Mandate)
+              </option>
+              <option value="summary">
+                📊 Summary (Asset Class Breakdown only)
+              </option>
+              <option value="transparent">
+                👁️ Transparent (Open-Book - All tickers visible to all members)
+              </option>
+            </select>
+            <span className="text-xs text-muted block mt-1">
+              <strong>Private Mandate:</strong> Investors track real-time NAV, verified units, and asset classes. Specific stock tickers, buy levels, and broker notes remain confidential to the Fund Manager.
+            </span>
+          </div>
         </div>
 
         {/* JSON Backup & Restore */}

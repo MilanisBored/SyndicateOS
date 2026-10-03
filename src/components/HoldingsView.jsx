@@ -17,6 +17,7 @@ export default function HoldingsView({
   onSyncValuationToNAV 
 }) {
   const isInvestor = perspective === 'investor' || fundInfo?.userRole === 'investor';
+  const isPrivateMandate = isInvestor && (fundInfo?.portfolioVisibility === 'private' || !fundInfo?.portfolioVisibility);
   const [isEditing, setIsEditing] = useState(false);
   const [editingAsset, setEditingAsset] = useState(null);
 
@@ -66,6 +67,18 @@ export default function HoldingsView({
   const totalHoldingsValue = holdings.reduce((sum, h) => sum + (Number(h.currentValue) || 0), 0);
   const totalHoldingsProfit = totalHoldingsValue - totalInvested;
   const totalHoldingsRoi = totalInvested > 0 ? (totalHoldingsProfit / totalInvested) * 100 : 0;
+
+  const categoryBreakdown = holdings.reduce((acc, h) => {
+    const cat = h.category || 'Asset Allocation';
+    if (!acc[cat]) {
+      acc[cat] = { category: cat, costBasis: 0, currentValue: 0, count: 0 };
+    }
+    acc[cat].costBasis += (Number(h.investedAmount) || 0);
+    acc[cat].currentValue += (Number(h.currentValue) || 0);
+    acc[cat].count += 1;
+    return acc;
+  }, {});
+  const categoryList = Object.values(categoryBreakdown);
 
   const handleOpenAdd = () => {
     setEditingAsset(null);
@@ -380,16 +393,119 @@ export default function HoldingsView({
         </div>
       )}
 
-      {/* Holdings Table */}
-      <div className="card p-4">
-        <div className="section-head">
-          <div>
-            <span className="section-title">Syndicate Portfolio Positions</span>
-            <span className="text-xs text-muted block">
-              Updating any FD or asset price updates the fund NAV and all participants' balances automatically.
-            </span>
+      {/* Holdings Content: Discretionary Trust Mandate for Investors or Full Positions Table for Managers/Transparent */}
+      {isPrivateMandate ? (
+        <div className="space-y-4">
+          {/* Institutional Discretionary Mandate Security Card */}
+          <div 
+            className="card p-4" 
+            style={{ 
+              background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.8) 100%)', 
+              border: '1px solid var(--border-color)' 
+            }}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span className="badge badge-warning mono font-semibold" style={{ fontSize: 10 }}>
+                  🔒 DISCRETIONARY TRUST MANDATE
+                </span>
+                <span className="badge badge-neutral mono" style={{ fontSize: 9 }}>
+                  CONFIDENTIAL PORTFOLIO
+                </span>
+              </div>
+              <span className="text-xs text-muted mono">
+                Fund Manager: <strong>{fundInfo?.managerName || 'Manager'}</strong>
+              </span>
+            </div>
+            <p className="text-sm leading-relaxed mb-3 text-secondary">
+              Under this syndicate pool mandate, granular underlying stock tickers, intraday trade logs, and broker execution notes remain <strong>strictly confidential</strong> to the Fund Manager. This eliminates retail panic over daily market fluctuations, prevents strategy front-running, and safeguards proprietary trading execution.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs mono pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+              <div>
+                <span className="text-muted block text-xxs">NAV PROTECTION</span>
+                <span className="text-primary font-medium">Unitized Daily NAV Tracking</span>
+              </div>
+              <div>
+                <span className="text-muted block text-xxs">TRANSACTION AUDIT</span>
+                <span className="text-profit font-medium">100% Verified Two-Way Ledger</span>
+              </div>
+              <div>
+                <span className="text-muted block text-xxs">CONFIDENTIALITY</span>
+                <span className="text-secondary font-medium">Proprietary Alpha Shield</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Asset Allocation Breakdown Table */}
+          <div className="card p-4">
+            <div className="section-head mb-3">
+              <div>
+                <span className="section-title">Syndicate Asset Class Allocation</span>
+                <span className="text-xs text-muted block">
+                  Broad asset classes backing current fund NAV. Granular stock positions are managed confidentially by the manager.
+                </span>
+              </div>
+            </div>
+
+            <div className="table-responsive">
+              <table className="dense-table">
+                <thead>
+                  <tr>
+                    <th>Asset Class</th>
+                    <th>Positions</th>
+                    <th>Allocation Cost</th>
+                    <th>Current Valuation</th>
+                    <th>Net Return</th>
+                    <th>Portfolio Weight</th>
+                    <th>Mandate Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {categoryList.length === 0 ? (
+                    <tr>
+                      <td colSpan="7" className="text-center text-muted py-6">
+                        No asset positions logged yet. Pool is currently held in 100% liquid cash.
+                      </td>
+                    </tr>
+                  ) : (
+                    categoryList.map((cat) => {
+                      const gain = cat.currentValue - cat.costBasis;
+                      const roi = cat.costBasis > 0 ? (gain / cat.costBasis) * 100 : 0;
+                      const weight = totalHoldingsValue > 0 ? (cat.currentValue / totalHoldingsValue) * 100 : 0;
+                      return (
+                        <tr key={cat.category}>
+                          <td className="font-semibold text-primary">{cat.category}</td>
+                          <td className="mono text-muted">{cat.count} position{cat.count > 1 ? 's' : ''}</td>
+                          <td className="mono text-muted">{formatCurrency(cat.costBasis, currency)}</td>
+                          <td className="mono font-semibold">{formatCurrency(cat.currentValue, currency)}</td>
+                          <td className={`mono ${gain >= 0 ? 'text-profit' : 'text-loss'}`}>
+                            {gain >= 0 ? '+' : ''}{formatCurrency(gain, currency, { decimals: 0 })} ({formatNumber(roi, 1)}%)
+                          </td>
+                          <td className="mono font-medium">{formatNumber(weight, 1)}%</td>
+                          <td>
+                            <span className="badge badge-neutral mono" style={{ fontSize: 9 }}>
+                              DISCRETIONARY
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
+      ) : (
+        <div className="card p-4">
+          <div className="section-head">
+            <div>
+              <span className="section-title">Syndicate Portfolio Positions</span>
+              <span className="text-xs text-muted block">
+                Updating any FD or asset price updates the fund NAV and all participants' balances automatically.
+              </span>
+            </div>
+          </div>
 
         <div className="table-responsive">
           <table className="dense-table">
@@ -617,6 +733,7 @@ export default function HoldingsView({
           </table>
         </div>
       </div>
+      )}
 
       {/* Add / Edit Modal */}
       {isEditing && (

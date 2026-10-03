@@ -76,7 +76,7 @@ export default function MemberModal({ onAddMember, onClose }) {
 
           <div className="form-group">
             <label className="form-label">
-              Investor Login Email <span className="text-muted text-xs font-normal">(Links account for shared pool view)</span>
+              Investor Login Email <span className="text-muted text-xs font-normal">(Generates syndicate invitation)</span>
             </label>
             <input
               type="email"
@@ -86,7 +86,7 @@ export default function MemberModal({ onAddMember, onClose }) {
               className="form-input"
             />
             <span className="text-xs text-muted block mt-1">
-              When this person logs in with this email, this syndicate pool, their deposits, and their equity will automatically show on their screen.
+              Adding this email generates a pending invitation. The member must explicitly verify and accept the syndicate terms before accessing the pool.
             </span>
           </div>
 
@@ -99,6 +99,19 @@ export default function MemberModal({ onAddMember, onClose }) {
               onChange={(e) => setNotes(e.target.value)}
               className="form-input"
             />
+          </div>
+
+          {/* Security and Confidentiality Assurance */}
+          <div 
+            className="p-3 mb-3 card text-xs mono" 
+            style={{ background: 'rgba(99, 102, 241, 0.05)', border: '1px solid rgba(99, 102, 241, 0.2)' }}
+          >
+            <div className="font-semibold text-primary mb-1 flex items-center gap-1">
+              <span>🔒 DISCRETIONARY MANDATE & PORTFOLIO PRIVACY</span>
+            </div>
+            <span className="text-muted block leading-relaxed">
+              Your specific stock picks, buy levels, and broker notes will remain <strong>strictly confidential</strong> from this investor unless you switch to transparent mode in Settings. Investors only track unitized NAV and asset class breakdown.
+            </span>
           </div>
 
           <div className="flex justify-end gap-2 mt-4 pt-3" style={{ borderTop: '1px solid var(--border-subtle)' }}>

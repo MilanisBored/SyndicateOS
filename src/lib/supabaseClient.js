@@ -146,8 +146,23 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
     const allIncomes = incomesRes.status === 'fulfilled' && !incomesRes.value.error ? (incomesRes.value.data || []) : [];
     const allSoloAssets = soloAssetsRes.status === 'fulfilled' && !soloAssetsRes.value.error ? (soloAssetsRes.value.data || []) : [];
 
-    // Filter accessible funds for this user
+    // Helper to determine member verification status
+    function parseMemberStatus(m) {
+      if (!m) return 'active';
+      const rel = (m.relationship || '').toLowerCase();
+      const role = (m.role || '').toLowerCase();
+      if (rel === 'self' || role === 'manager') return 'active';
+      if (m.status) return m.status;
+      const note = m.notes || m.note || '';
+      if (note.includes('[STATUS: invited]')) return 'invited';
+      if (note.includes('[STATUS: declined]')) return 'declined';
+      if (note.includes('[STATUS: active]')) return 'active';
+      return 'active';
+    }
+
+    // Filter accessible funds for this user & collect pending invitations
     let accessibleFunds = [];
+    const pendingInvitations = [];
 
     if (!userEmail || userEmail === 'milan@localhost' || userEmail === 'dev@localhost') {
       // Local development or unauthenticated: access all available funds
@@ -155,24 +170,51 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
     } else {
       // Authenticated with email:
       // 1. Funds where user is manager/owner
-      // 2. Funds where user's email is linked in members table (as investor)
+      // 2. Funds where user is verified active member (NOT unverified pending invitation)
       accessibleFunds = allFunds.filter(f => {
         const ownerEmail = (f.owner_email || '').toLowerCase().trim();
         if (ownerEmail && ownerEmail === userEmail) return true;
         if (f.owner_id && userId && f.owner_id === userId) return true;
 
         // Check if user is linked by email as an investor in this fund's members
-        const isLinkedMember = allMembers.some(m => 
+        const myMemberRecords = allMembers.filter(m => 
           m.fund_id === f.id && m.email && m.email.toLowerCase().trim() === userEmail
         );
-        if (isLinkedMember) return true;
+
+        for (const m of myMemberRecords) {
+          const status = parseMemberStatus(m);
+          if (status === 'active') {
+            return true;
+          }
+        }
 
         return false;
       });
+
+      // Find any invitations pending verification for this user
+      const myInvitedMembers = allMembers.filter(m => {
+        if (!m.email || m.email.toLowerCase().trim() !== userEmail) return false;
+        return parseMemberStatus(m) === 'invited';
+      });
+
+      for (const m of myInvitedMembers) {
+        const f = allFunds.find(fundItem => fundItem.id === m.fund_id);
+        if (f && !pendingInvitations.some(p => p.memberId === m.id)) {
+          pendingInvitations.push({
+            memberId: m.id,
+            fundId: f.id,
+            fundName: f.name || 'Syndicate Pool',
+            managerName: f.manager_name || 'Fund Manager',
+            currency: f.currency || 'INR',
+            invitedEmail: m.email,
+            date: m.created_at || new Date().toISOString()
+          });
+        }
+      }
     }
 
-    // Auto-create a clean, private fund profile for new users with no accessible funds
-    if (accessibleFunds.length === 0 && userEmail) {
+    // Auto-create a clean, private fund profile for new users with no accessible funds and no pending invitations
+    if (accessibleFunds.length === 0 && pendingInvitations.length === 0 && userEmail) {
       try {
         const userName = currentUser?.user_metadata?.full_name || userEmail.split('@')[0] || 'Fund Manager';
         const newFundPayload = {
@@ -196,7 +238,7 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
             relationship: 'self',
             role: 'Manager',
             email: userEmail,
-            notes: 'Primary fund manager'
+            notes: 'Primary fund manager [STATUS: active]'
           }]).select().single();
           if (createdMem) allMembers.push(createdMem);
         }
@@ -210,7 +252,7 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
     if (targetFundId) {
       fund = accessibleFunds.find(f => f.id === targetFundId) || accessibleFunds[0];
     } else {
-      fund = accessibleFunds[0] || allFunds[0] || null;
+      fund = accessibleFunds[0] || null;
     }
 
     const activeFundId = fund?.id || null;
@@ -226,6 +268,7 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
         role: m.role || 'Investor',
         email: m.email || '',
         notes: m.notes || m.note || '',
+        status: parseMemberStatus(m),
         isMe: Boolean(isMe),
       };
     });
@@ -299,12 +342,56 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
       }
       return false;
     });
+    // Classify user's role in the currently selected fund
+    const isCurrentFundOwner = Boolean(
+      (userEmail && fund?.owner_email && fund.owner_email.toLowerCase().trim() === userEmail) ||
+      (userId && fund?.owner_id && fund.owner_id === userId) ||
+      (!fund?.owner_email && !fund?.owner_id) // unassigned default
+    );
+
+    // Read portfolio visibility for the active fund (default 'private')
+    const storedVisibility = fund?.id ? localStorage.getItem(`syndicate_fund_${fund.id}_visibility`) : null;
+    const portfolioVisibility = fund?.portfolio_visibility || storedVisibility || 'private';
+    const isInvestorView = !isCurrentFundOwner;
+
     const rawHoldings = allHoldings.filter(h => !activeFundId || h.fund_id === activeFundId);
-    const holdings = rawHoldings.map(h => {
+    const holdings = rawHoldings.map((h, idx) => {
       let parsedUnits = Number(h.units ?? h.quantity ?? 0);
       if ((!parsedUnits || isNaN(parsedUnits)) && h.notes) {
         const match = String(h.notes).match(/\[UNITS:\s*([\d\.]+)\]/i);
         if (match && match[1]) parsedUnits = Number(match[1]);
+      }
+
+      const investedAmt = Number(h.invested_amount ?? h.investedAmount ?? h.cost_price ?? 0);
+      const currentVal = Number(h.current_value ?? h.currentValue ?? h.market_value ?? 0);
+
+      // If investor view and private portfolio, redact confidential strategy details
+      if (isInvestorView && portfolioVisibility === 'private') {
+        return {
+          id: h.id || `h_${idx}`,
+          ticker: `ASSET-${idx + 1}`,
+          name: `${h.category || 'Portfolio'} Allocation`,
+          category: h.category || 'Asset Allocation',
+          investedAmount: investedAmt,
+          currentValue: currentVal,
+          units: null,
+          notes: 'Confidential Discretionary Mandate',
+          isRedacted: true,
+        };
+      }
+
+      if (isInvestorView && portfolioVisibility === 'summary') {
+        return {
+          id: h.id || `h_${idx}`,
+          ticker: `${(h.category || 'ASSET').slice(0, 4).toUpperCase()}-${idx + 1}`,
+          name: `${h.category || 'Asset Position'}`,
+          category: h.category || 'Mutual Funds',
+          investedAmount: investedAmt,
+          currentValue: currentVal,
+          units: null,
+          notes: '',
+          isRedacted: true,
+        };
       }
 
       return {
@@ -312,10 +399,11 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
         ticker: h.ticker || h.symbol || h.name || 'HOLD',
         name: h.name || h.ticker || 'Asset Position',
         category: h.category || 'Mutual Funds',
-        investedAmount: Number(h.invested_amount ?? h.investedAmount ?? h.cost_price ?? 0),
-        currentValue: Number(h.current_value ?? h.currentValue ?? h.market_value ?? 0),
+        investedAmount: investedAmt,
+        currentValue: currentVal,
         units: parsedUnits > 0 ? parsedUnits : (h.units ? Number(h.units) : null),
         notes: h.notes || h.note || '',
+        isRedacted: false,
       };
     });
 
@@ -352,13 +440,6 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
       institution: a.institution || a.bank || '',
     }));
 
-    // Classify user's role in the currently selected fund
-    const isCurrentFundOwner = Boolean(
-      (userEmail && fund?.owner_email && fund.owner_email.toLowerCase().trim() === userEmail) ||
-      (userId && fund?.owner_id && fund.owner_id === userId) ||
-      (!fund?.owner_email && !fund?.owner_id) // unassigned default
-    );
-
     const availableFunds = accessibleFunds.map(f => {
       const isFundOwner = Boolean(
         (userEmail && f.owner_email && f.owner_email.toLowerCase().trim() === userEmail) ||
@@ -376,6 +457,7 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
 
     return {
       availableFunds,
+      pendingInvitations,
       fundInfo: fund ? {
         id: fund.id,
         name: fund.name || 'Syndicate Pool',
@@ -386,6 +468,7 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
         ownerId: fund.owner_id || null,
         isOwner: isCurrentFundOwner,
         userRole: isCurrentFundOwner ? 'manager' : 'investor',
+        portfolioVisibility,
         myMemberId: currentMemberRecord?.id || null,
       } : {
         name: 'Syndicate Pool',
@@ -394,6 +477,7 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
         currency: 'INR',
         isOwner: true,
         userRole: 'manager',
+        portfolioVisibility: 'private',
         myMemberId: null,
       },
       members,
@@ -554,18 +638,74 @@ export async function insertMemberToSupabase(member, fundId) {
     }
   }
 
+  const isSelf = (member.relationship || '').toLowerCase() === 'self' || (member.role || '').toLowerCase() === 'manager';
+  const initialStatus = isSelf ? 'active' : 'invited';
+
+  let notesVal = member.notes || '';
+  if (!isSelf && !notesVal.includes('[STATUS:')) {
+    notesVal = notesVal ? `${notesVal} [STATUS: invited]` : `[STATUS: invited]`;
+  } else if (isSelf && !notesVal.includes('[STATUS:')) {
+    notesVal = notesVal ? `${notesVal} [STATUS: active]` : `[STATUS: active]`;
+  }
+
   const payload = {
     name: member.name,
     relationship: member.relationship || 'friend',
     role: member.role || 'Investor',
     email: member.email || null,
-    notes: member.notes || null,
+    notes: notesVal || null,
+    status: initialStatus,
   };
   if (activeFundId) payload.fund_id = activeFundId;
 
-  const { data, error } = await sb.from('members').insert([payload]).select().single();
+  let { data, error } = await sb.from('members').insert([payload]).select().single();
+  if (error && (error.message?.includes('status') || error.code === '42703')) {
+    delete payload.status;
+    const retry = await sb.from('members').insert([payload]).select().single();
+    if (retry.error) throw retry.error;
+    return retry.data;
+  }
   if (error) throw error;
   return data;
+}
+
+export async function acceptSyndicateInvitation(memberId) {
+  const sb = getSupabase();
+  if (!sb || !memberId) return null;
+
+  // 1. Fetch current member record to preserve notes
+  const { data: mem, error: fetchErr } = await sb.from('members').select('*').eq('id', memberId).single();
+  if (fetchErr) throw fetchErr;
+
+  let updatedNotes = (mem.notes || '').replace(/\[STATUS:\s*invited\]/gi, '[STATUS: active]').trim();
+  if (!updatedNotes.includes('[STATUS: active]')) {
+    updatedNotes = `${updatedNotes} [STATUS: active]`.trim();
+  }
+
+  const payload = {
+    status: 'active',
+    notes: updatedNotes
+  };
+
+  let { data, error } = await sb.from('members').update(payload).eq('id', memberId).select().single();
+  if (error && (error.message?.includes('status') || error.code === '42703')) {
+    delete payload.status;
+    const retry = await sb.from('members').update(payload).eq('id', memberId).select().single();
+    if (retry.error) throw retry.error;
+    return retry.data;
+  }
+  if (error) throw error;
+  return data;
+}
+
+export async function declineSyndicateInvitation(memberId) {
+  const sb = getSupabase();
+  if (!sb || !memberId) return null;
+
+  // Decline by removing member from pool invitation roster
+  const { error } = await sb.from('members').delete().eq('id', memberId);
+  if (error) throw error;
+  return true;
 }
 
 export async function deleteMemberFromSupabase(memberId, options = {}) {
@@ -778,13 +918,30 @@ export async function createFundInSupabase({ name, managerName, currency = 'INR'
 
 export async function updateFundInSupabase(fundId, info) {
   const sb = getSupabase();
-  if (!sb || !fundId) return;
+  if (!fundId) return;
 
-  await sb.from('funds').update({
+  if (info.portfolioVisibility) {
+    try {
+      localStorage.setItem(`syndicate_fund_${fundId}_visibility`, info.portfolioVisibility);
+    } catch (e) {}
+  }
+
+  if (!sb) return;
+
+  const updatePayload = {
     name: info.name,
     manager_name: info.managerName,
     currency: info.currency,
-  }).eq('id', fundId);
+  };
+  if (info.portfolioVisibility) {
+    updatePayload.portfolio_visibility = info.portfolioVisibility;
+  }
+
+  const res = await sb.from('funds').update(updatePayload).eq('id', fundId);
+  if (res.error && (res.error.message?.includes('portfolio_visibility') || res.error.code === '42703')) {
+    delete updatePayload.portfolio_visibility;
+    await sb.from('funds').update(updatePayload).eq('id', fundId);
+  }
 }
 
 export async function wipeSupabaseDatabase() {

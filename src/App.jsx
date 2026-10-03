@@ -18,6 +18,8 @@ import {
   updateFundInSupabase,
   createFundInSupabase,
   updateTransactionStatusInSupabase,
+  acceptSyndicateInvitation,
+  declineSyndicateInvitation,
   getSupabase,
   getAuthSession,
   signOutUser,
@@ -39,6 +41,7 @@ import MemberModal from './components/MemberModal';
 import StatementModal from './components/StatementModal';
 import CreateFundModal from './components/CreateFundModal';
 import ActionCenterModal from './components/ActionCenterModal';
+import InvitationGatekeeperModal from './components/InvitationGatekeeperModal';
 
 import './App.css';
 
@@ -165,6 +168,7 @@ export default function App() {
   });
 
   const [availableFunds, setAvailableFunds] = useState([]);
+  const [pendingInvitations, setPendingInvitations] = useState([]);
 
   // Supabase Fetcher (Multi-tenant: scoped to current user session)
   const refreshFromSupabase = useCallback(async (targetFundId = null) => {
@@ -178,6 +182,11 @@ export default function App() {
       if (cloudData) {
         if (cloudData.availableFunds) {
           setAvailableFunds(cloudData.availableFunds);
+        }
+        if (cloudData.pendingInvitations) {
+          setPendingInvitations(cloudData.pendingInvitations);
+        } else {
+          setPendingInvitations([]);
         }
         setAppState({
           fundInfo: cloudData.fundInfo || { name: 'Syndicate Pool', managerName: 'Manager', initialNav: 100, currency: 'INR' },
@@ -198,6 +207,24 @@ export default function App() {
       setIsLoadingCloud(false);
     }
   }, [session]);
+
+  const handleAcceptInvitation = async (inv) => {
+    try {
+      await acceptSyndicateInvitation(inv.memberId);
+      await refreshFromSupabase(inv.fundId);
+    } catch (err) {
+      alert('Failed to accept syndicate invitation: ' + err.message);
+    }
+  };
+
+  const handleDeclineInvitation = async (inv) => {
+    try {
+      await declineSyndicateInvitation(inv.memberId);
+      await refreshFromSupabase();
+    } catch (err) {
+      alert('Failed to decline invitation: ' + err.message);
+    }
+  };
 
   useEffect(() => {
     if (isConnectedToCloud) {
@@ -808,6 +835,16 @@ export default function App() {
             setIsActionCenterOpen(false);
             handleOpenTransactionModal();
           }}
+        />
+      )}
+
+      {/* Syndicate Access Gatekeeper Modal */}
+      {pendingInvitations && pendingInvitations.length > 0 && (
+        <InvitationGatekeeperModal
+          isOpen={pendingInvitations.length > 0}
+          invitations={pendingInvitations}
+          onAccept={handleAcceptInvitation}
+          onDecline={handleDeclineInvitation}
         />
       )}
     </div>
