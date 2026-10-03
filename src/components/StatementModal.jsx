@@ -22,9 +22,8 @@ export default function StatementModal({
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div 
-        className="modal-content"
+        className="modal-content modal-statement-sheet"
         onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: '640px', padding: 24 }}
       >
         {/* Actions bar (no-print) */}
         <div className="flex justify-between items-center pb-3 mb-4 no-print" style={{ borderBottom: '1px solid var(--border-subtle)' }}>

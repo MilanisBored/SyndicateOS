@@ -43,7 +43,7 @@ export default function StatementsView({
       {/* Featured Card for Logged-In Investor */}
       {isInvestor && currentMember && (
         <div 
-          className="card p-4 mb-4 flex justify-between items-center"
+          className="card p-4 mb-4 investor-portal-banner flex justify-between items-center"
           style={{ background: 'rgba(99, 102, 241, 0.08)', border: '1px solid rgba(99, 102, 241, 0.3)' }}
         >
           <div>

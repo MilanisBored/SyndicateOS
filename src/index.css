@@ -282,8 +282,9 @@ body {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(2px);
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -299,17 +300,45 @@ body {
   max-width: 520px;
   max-height: 90vh;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 20px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+}
+
+@media (max-width: 640px) {
+  .modal-overlay {
+    padding: 0;
+    align-items: flex-end;
+  }
+  .modal-content {
+    max-width: 100%;
+    max-height: 88vh;
+    border-radius: 16px 16px 0 0;
+    border-bottom: none;
+    padding: 20px 16px calc(env(safe-area-inset-bottom, 16px) + 16px) 16px;
+    animation: slideUpModal 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}
+
+@keyframes slideUpModal {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
 }
 
 /* Tables */
 .table-responsive {
   width: 100%;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .dense-table {
   width: 100%;
+  min-width: 600px;
   border-collapse: collapse;
   text-align: left;
   font-size: 12px;
@@ -332,6 +361,15 @@ body {
   background: var(--bg-hover);
 }
 
+/* Mobile iOS Safari Auto-Zoom Prevention */
+@media (max-width: 768px) {
+  .form-input:not(.inline-input),
+  .form-select:not(.inline-input),
+  .form-textarea {
+    font-size: 16px !important;
+  }
+}
+
 @media print {
   body {
     background: #ffffff !important;
@@ -351,3 +389,4 @@ body {
     padding: 0 !important;
   }
 }
+

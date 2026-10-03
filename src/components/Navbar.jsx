@@ -49,75 +49,75 @@ export default function Navbar({
       {/* Upper Bar: Brand & Action Controls */}
       <div className="topbar-main">
         <div className="topbar-main-inner">
-          {/* Brand & Pool Switcher */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {/* Left Cluster: Brand & Pool Switcher */}
+          <div className="topbar-left">
             <div className="brand" onClick={() => setActiveTab('dashboard')} title="Back to Overview">
               <div className="brand-dot" />
               <span className="brand-name">{brandTitle}</span>
             </div>
 
-            {/* Role Badge */}
-            <span 
-              className={`badge mono font-semibold ${isInvestorView ? 'badge-profit' : 'badge-neutral'}`}
-              style={{ fontSize: 10, padding: '2px 7px' }}
-              title={isInvestorView ? 'Viewing as Investor in this pool' : 'Viewing as Fund Manager'}
-            >
-              {isInvestorView ? 'INVESTOR' : 'MANAGER'}
-            </span>
-
-            {/* Fund Switcher Dropdown */}
-            {(availableFunds.length > 0 || onCreateFund) && (
-              <select
-                value={fundInfo?.id || ''}
-                onChange={(e) => {
-                  if (e.target.value === '__new_pool__') {
-                    onCreateFund && onCreateFund();
-                  } else if (onSwitchFund) {
-                    onSwitchFund(e.target.value);
-                  }
-                }}
-                className="currency-select-minimal mono"
-                title="Switch Syndicate Pool"
-                style={{ fontSize: '11px', maxWidth: '170px' }}
+            <div className="topbar-pool-cluster">
+              {/* Role Badge */}
+              <span 
+                className={`badge mono font-semibold ${isInvestorView ? 'badge-profit' : 'badge-neutral'}`}
+                style={{ fontSize: 10, padding: '2px 7px' }}
+                title={isInvestorView ? 'Viewing as Investor in this pool' : 'Viewing as Fund Manager'}
               >
-                {managedFunds.length > 0 && (
-                  <optgroup label="Managed Pools">
-                    {managedFunds.map((f) => (
-                      <option key={f.id} value={f.id}>
-                        {f.name || 'Syndicate Pool'}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-                {investedFunds.length > 0 && (
-                  <optgroup label="Invested Pools">
-                    {investedFunds.map((f) => (
-                      <option key={f.id} value={f.id}>
-                        {f.name || 'Syndicate'} ({f.managerName})
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-                {onCreateFund && (
-                  <optgroup label="Actions">
-                    <option value="__new_pool__">+ New Pool...</option>
-                  </optgroup>
-                )}
-              </select>
-            )}
+                {isInvestorView ? 'INVESTOR' : 'MANAGER'}
+              </span>
 
-            {/* Manager Perspective Preview Toggle */}
-            {isActualManager && onTogglePerspective && (
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                style={{ fontSize: '10px', padding: '2px 7px', borderColor: 'var(--border-subtle)' }}
-                onClick={onTogglePerspective}
-                title="Toggle between Manager view and Investor perspective preview"
-              >
-                {perspective === 'manager' ? 'Preview Investor' : 'Exit Preview'}
-              </button>
-            )}
+              {/* Fund Switcher Dropdown */}
+              {(availableFunds.length > 0 || onCreateFund) && (
+                <select
+                  value={fundInfo?.id || ''}
+                  onChange={(e) => {
+                    if (e.target.value === '__new_pool__') {
+                      onCreateFund && onCreateFund();
+                    } else if (onSwitchFund) {
+                      onSwitchFund(e.target.value);
+                    }
+                  }}
+                  className="currency-select-minimal mono pool-switcher-select"
+                  title="Switch Syndicate Pool"
+                >
+                  {managedFunds.length > 0 && (
+                    <optgroup label="Managed Pools">
+                      {managedFunds.map((f) => (
+                        <option key={f.id} value={f.id}>
+                          {f.name || 'Syndicate Pool'}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {investedFunds.length > 0 && (
+                    <optgroup label="Invested Pools">
+                      {investedFunds.map((f) => (
+                        <option key={f.id} value={f.id}>
+                          {f.name || 'Syndicate'} ({f.managerName})
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {onCreateFund && (
+                    <optgroup label="Actions">
+                      <option value="__new_pool__">+ New Pool...</option>
+                    </optgroup>
+                  )}
+                </select>
+              )}
+
+              {/* Manager Perspective Preview Toggle */}
+              {isActualManager && onTogglePerspective && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm perspective-toggle-btn"
+                  onClick={onTogglePerspective}
+                  title="Toggle between Manager view and Investor perspective preview"
+                >
+                  {perspective === 'manager' ? 'Preview Investor' : 'Exit Preview'}
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Right Action Tools */}

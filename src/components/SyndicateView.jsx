@@ -240,7 +240,7 @@ export default function SyndicateView({
           </div>
 
           {/* Filters */}
-          <div className="flex gap-2">
+          <div className="ledger-filters flex gap-2">
             <input
               type="text"
               placeholder="Search..."

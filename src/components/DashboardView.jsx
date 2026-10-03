@@ -68,7 +68,7 @@ export default function DashboardView({
       {/* Investor Portal Header Banner */}
       {isInvestor && currentMember && (
         <div 
-          className="card p-3 mb-3 flex justify-between items-center"
+          className="card p-3 mb-3 investor-portal-banner flex justify-between items-center"
           style={{ background: 'rgba(99, 102, 241, 0.08)', border: '1px solid rgba(99, 102, 241, 0.25)' }}
         >
           <div className="flex items-center gap-3">
@@ -99,7 +99,7 @@ export default function DashboardView({
           className="card p-3 mb-3"
           style={{ background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.35)' }}
         >
-          <div className="flex items-center justify-between mb-2">
+          <div className="action-required-header flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <span className="badge badge-warning mono font-semibold" style={{ fontSize: 10, padding: '2px 7px' }}>ACTION REQUIRED</span>
               <span className="font-semibold text-sm">
@@ -115,7 +115,7 @@ export default function DashboardView({
             {pendingInvestorTx.map(tx => (
               <div 
                 key={tx.id} 
-                className="card p-2 flex justify-between items-center text-xs"
+                className="card p-2 action-required-item flex justify-between items-center text-xs"
                 style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border-subtle)' }}
               >
                 <div>
