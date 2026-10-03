@@ -358,13 +358,43 @@ export function computeFundState(fundInfo, members, transactions, holdings = [])
   });
 
   // Calculate current fund total AUM
-  // If holdings are provided and sum up to a specific amount, that can validate the valuation
+  // Holdings represent the invested portion of the fund.
+  // Cash deposited by members that has not yet been deployed into holdings must be added to AUM
+  // to avoid diluting newly deposited capital.
   const holdingsTotal = holdings.reduce((sum, h) => sum + (Number(h.currentValue) || 0), 0);
-  const totalFundAUM = holdingsTotal > 0 ? holdingsTotal : totalUnits * currentNav;
 
-  // If holdings total differs from totalUnits * currentNav, update currentNav to match holdings
-  if (holdingsTotal > 0 && totalUnits > 0) {
-    currentNav = holdingsTotal / totalUnits;
+  // Find the most recent valuation_update in chronological transaction history
+  let lastValIdx = -1;
+  for (let i = sortedTx.length - 1; i >= 0; i--) {
+    if (sortedTx[i].type === 'valuation_update') {
+      lastValIdx = i;
+      break;
+    }
+  }
+
+  let undeployedCash = 0;
+  if (lastValIdx >= 0) {
+    // Net cash deposited after the last portfolio revaluation is undeployed liquidity in the bank/wallet
+    const postValTxs = sortedTx.slice(lastValIdx + 1);
+    postValTxs.forEach((t) => {
+      if (t.type === 'deposit') undeployedCash += Number(t.amount) || 0;
+      if (t.type === 'withdrawal') undeployedCash -= Number(t.amount) || 0;
+    });
+  } else {
+    // If no valuation sync transaction exists, cash is total net deposits minus cost basis spent on holdings
+    const holdingsCost = holdings.reduce((s, h) => s + (Number(h.investedAmount) || Number(h.currentValue) || 0), 0);
+    undeployedCash = totalDeposited - totalWithdrawn - holdingsCost;
+  }
+  undeployedCash = Math.max(0, undeployedCash);
+
+  // Fund AUM is the combined market value of invested assets plus liquid undeployed cash
+  const totalFundAUM = holdingsTotal > 0 
+    ? (holdingsTotal + undeployedCash) 
+    : (totalUnits > 0 ? totalUnits * currentNav : 0);
+
+  // Ensure current NAV accurately reflects total AUM per unit
+  if (totalUnits > 0) {
+    currentNav = totalFundAUM / totalUnits;
   }
 
   // Calculate Member Metrics at current NAV
@@ -426,6 +456,7 @@ export function computeFundState(fundInfo, members, transactions, holdings = [])
     partnerStakeValue,
     friendsStakeValue,
     holdingsTotal,
+    undeployedCash,
   };
 }
 

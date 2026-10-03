@@ -360,6 +360,26 @@ export default function HoldingsView({
         </div>
       </div>
 
+      {/* Unallocated Liquid Cash Banner */}
+      {fundMetrics.undeployedCash > 0 && (
+        <div 
+          className="card p-3 mb-3 flex justify-between items-center text-xs"
+          style={{ background: 'rgba(99, 102, 241, 0.06)', border: '1px solid rgba(99, 102, 241, 0.25)' }}
+        >
+          <div className="flex items-center gap-2">
+            <span className="badge badge-profit mono font-semibold" style={{ fontSize: 10 }}>UNALLOCATED CASH</span>
+            <span>
+              <strong>{formatCurrency(fundMetrics.undeployedCash, currency)}</strong> of newly deposited member capital is held as liquid bank balance (100% NAV protected).
+            </span>
+          </div>
+          {!isInvestor && (
+            <span className="text-muted">
+              Add new positions or record SIP investments to deploy this capital.
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Holdings Table */}
       <div className="card p-4">
         <div className="section-head">
