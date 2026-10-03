@@ -152,11 +152,6 @@ export default function SyndicateView({
                     <span className="text-xs text-muted">
                       {member.role}
                     </span>
-                    {member.userCode && (
-                      <span className="badge badge-neutral mono text-xs" style={{ fontSize: 9, padding: '1px 5px' }}>
-                        {member.userCode}
-                      </span>
-                    )}
                   </div>
                 </div>
                 <div className="shrink-0">

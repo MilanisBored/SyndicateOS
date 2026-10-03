@@ -16,12 +16,6 @@ export default function MemberModal({ onAddMember, onClose }) {
   const isCodeMatch = Boolean(expectedCode && normalizedInputCode && normalizedInputCode === expectedCode);
   const isCodeMismatch = Boolean(expectedCode && normalizedInputCode && normalizedInputCode !== expectedCode);
 
-  const handleAutoFillCode = () => {
-    if (expectedCode) {
-      setUserCode(expectedCode);
-      setValidationError('');
-    }
-  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -108,24 +102,12 @@ export default function MemberModal({ onAddMember, onClose }) {
           </div>
 
           <div className="form-group">
-            <div className="flex justify-between items-center mb-1">
-              <label className="form-label" style={{ marginBottom: 0 }}>
-                Unique User Code
-              </label>
-              {expectedCode && (
-                <button
-                  type="button"
-                  onClick={handleAutoFillCode}
-                  className="btn btn-secondary btn-sm mono"
-                  style={{ fontSize: 10, padding: '1px 6px' }}
-                >
-                  Auto-fill Expected Code
-                </button>
-              )}
-            </div>
+            <label className="form-label">
+              Unique User Code
+            </label>
             <input
               type="text"
-              placeholder={expectedCode ? `e.g. ${expectedCode}` : "e.g. USR-9CC360"}
+              placeholder="e.g. USR-9CC360"
               value={userCode}
               onChange={(e) => {
                 setUserCode(e.target.value.toUpperCase());
@@ -136,7 +118,7 @@ export default function MemberModal({ onAddMember, onClose }) {
             />
             <div className="mt-1 flex items-center justify-between text-xs">
               <span className="text-muted">
-                Each investor has a unique 6-character user code shown on their SyndicateOS screen.
+                Each investor has a unique user code found inside their user menu.
               </span>
             </div>
             {isCodeMatch && (
@@ -146,7 +128,7 @@ export default function MemberModal({ onAddMember, onClose }) {
             )}
             {isCodeMismatch && (
               <span className="badge badge-warning mono text-xs mt-1 inline-block">
-                NOTICE: Expected {expectedCode} for this Gmail
+                NOTICE: Code does not match registered investor code
               </span>
             )}
           </div>

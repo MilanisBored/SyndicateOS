@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { CURRENCIES, INITIAL_DEMO_DATA, generateUserCode } from '../utils/navEngine';
+import { CURRENCIES, INITIAL_DEMO_DATA } from '../utils/navEngine';
 import { 
   getSupabaseCredentials, 
   isSupabaseConfigured,
@@ -172,52 +172,6 @@ export default function SettingsView({
         <span className="section-title">Settings & Database</span>
       </div>
 
-      {/* Investor Identification & Unique User Code */}
-      {(() => {
-        const userEmail = currentUser?.email || fundInfo?.owner_email || 'investor@example.com';
-        const userCode = generateUserCode(userEmail);
-        return (
-          <div className="card p-4 mb-4">
-            <div className="section-head mb-2">
-              <div>
-                <span className="section-title">Investor Identity & Unique User Code</span>
-                <span className="text-xs text-muted block">
-                  Share this User Code and your Gmail with your Fund Manager so they can link you to their syndicate.
-                </span>
-              </div>
-              <span className="badge badge-profit mono text-xs font-semibold">VERIFIED IDENTITY</span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 mt-3">
-              <div className="p-3 card" style={{ background: 'var(--bg-subtle)' }}>
-                <span className="text-xs text-muted block mb-1">Your Registered Gmail / Email</span>
-                <span className="mono font-semibold text-sm text-primary">{userEmail}</span>
-              </div>
-
-              <div className="p-3 card flex items-center justify-between" style={{ background: 'var(--bg-subtle)' }}>
-                <div>
-                  <span className="text-xs text-muted block mb-1">Your Unique User Code</span>
-                  <span className="mono font-bold text-sm text-profit">{userCode}</span>
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm mono"
-                  onClick={() => {
-                    if (navigator.clipboard) {
-                      navigator.clipboard.writeText(userCode);
-                      alert(`User Code (${userCode}) copied to clipboard! Share it with your Fund Manager.`);
-                    } else {
-                      prompt('Your User Code:', userCode);
-                    }
-                  }}
-                >
-                  Copy Code
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
 
       <div className="grid grid-cols-2 gap-4">
         {/* Supabase Database Connection */}

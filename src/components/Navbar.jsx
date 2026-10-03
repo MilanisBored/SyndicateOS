@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { CURRENCIES, generateUserCode } from '../utils/navEngine';
 
 export default function Navbar({ 
@@ -42,6 +42,35 @@ export default function Navbar({
     : (currentUser?.user_metadata?.full_name || currentUser?.email?.split('@')[0] || 'User');
 
   const myUserCode = generateUserCode(currentUser?.email || (isGuest ? 'guest@syndicate.me' : 'milan@invest.me'));
+
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
+  const userMenuRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target)) {
+        setIsUserMenuOpen(false);
+      }
+    }
+    if (isUserMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isUserMenuOpen]);
+
+  const handleCopyCode = (e) => {
+    e.stopPropagation();
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(myUserCode);
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 2000);
+    } else {
+      prompt('Your User Code:', myUserCode);
+    }
+  };
 
   const isInvestorView = perspective === 'investor' || fundInfo?.userRole === 'investor';
   const isActualManager = fundInfo?.isOwner || fundInfo?.userRole === 'manager';
@@ -218,42 +247,68 @@ export default function Navbar({
               </button>
             )}
 
-            {/* User Session & Unique User Code */}
+            {/* User Session: Name Tab with Code Underneath & Dropdown with Lock/SignOut */}
             {onSignOut && (
-              <div className="user-auth-cluster flex items-center gap-1">
-                {myUserCode && (
-                  <button
-                    type="button"
-                    className="badge badge-neutral mono"
-                    title="Click to copy your unique User Code for your Fund Manager"
-                    style={{ cursor: 'pointer', padding: '3px 7px', fontSize: 10 }}
-                    onClick={() => {
-                      if (navigator.clipboard) {
-                        navigator.clipboard.writeText(myUserCode);
-                        alert(`Your Unique User Code (${myUserCode}) was copied to clipboard! Share it with your Fund Manager.`);
-                      } else {
-                        prompt('Your User Code:', myUserCode);
-                      }
-                    }}
-                  >
-                    CODE: {myUserCode}
-                  </button>
-                )}
-                <span 
-                  className="badge badge-neutral mono user-chip"
-                  title={currentUser?.email || (isGuest ? 'Guest Mode' : 'Authenticated')}
-                >
-                  {userDisplay}
-                </span>
+              <div className="user-menu-wrapper" ref={userMenuRef}>
                 <button
                   type="button"
-                  className="btn btn-secondary btn-sm lock-btn mono"
-                  onClick={onSignOut}
-                  title="Lock Terminal / Sign Out"
-                  style={{ fontSize: 10, padding: '3px 7px' }}
+                  className={`user-name-tab mono ${isUserMenuOpen ? 'active' : ''}`}
+                  onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                  title="Account menu: User Code & Session Options"
                 >
-                  Lock
+                  <span className="user-name-title">{userDisplay}</span>
                 </button>
+
+                {isUserMenuOpen && (
+                  <div className="user-profile-dropdown mono">
+                    <div className="user-dropdown-header">
+                      <span className="user-dropdown-name">{userDisplay}</span>
+                      <span className="user-dropdown-email">
+                        {currentUser?.email || (isGuest ? 'Guest Session' : 'Local Terminal')}
+                      </span>
+                    </div>
+
+                    {myUserCode && (
+                      <div className="user-dropdown-code-box">
+                        <div style={{ fontSize: 9, color: 'var(--text-muted)', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                          Your Unique User Code
+                        </div>
+                        <div className="flex items-center justify-between gap-1">
+                          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', color: 'var(--text-primary)' }}>
+                            {myUserCode}
+                          </span>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            style={{ fontSize: 9, padding: '2px 6px' }}
+                            onClick={handleCopyCode}
+                            title="Copy User Code to clipboard"
+                          >
+                            {codeCopied ? 'COPIED' : 'COPY'}
+                          </button>
+                        </div>
+                        <div style={{ fontSize: 9, color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.3 }}>
+                          Share with Fund Manager along with your email to join pools.
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="user-dropdown-actions">
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm lock-btn mono w-full"
+                        onClick={() => {
+                          setIsUserMenuOpen(false);
+                          onSignOut();
+                        }}
+                        style={{ fontSize: 11, padding: '5px 10px', textAlign: 'center', width: '100%' }}
+                        title="Lock Terminal / Sign Out"
+                      >
+                        Lock Terminal / Sign Out
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

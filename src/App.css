@@ -205,24 +205,89 @@
   font-weight: 500;
 }
 
-.user-auth-cluster {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+/* User Name Tab & Dropdown */
+.user-menu-wrapper {
+  position: relative;
+  display: inline-block;
 }
 
-.user-chip {
-  font-size: 10px;
-  padding: 3px 7px;
-  max-width: 120px;
+.user-name-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.user-name-tab:hover,
+.user-name-tab.active {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+}
+
+.user-name-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.lock-btn {
-  padding: 3px 6px;
-  font-size: 11px;
+.user-profile-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 210px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  padding: 10px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.user-dropdown-header {
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.user-dropdown-name {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.user-dropdown-email {
+  display: block;
+  font-size: 10px;
+  color: var(--text-muted);
+  word-break: break-all;
+  margin-top: 1px;
+}
+
+.user-dropdown-code-box {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  padding: 6px 8px;
+}
+
+.user-dropdown-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 2px;
 }
 
 /* Lower Bar (Navigation Tabs) */
