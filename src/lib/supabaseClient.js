@@ -361,6 +361,12 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
         if (match && match[1]) parsedUnits = Number(match[1]);
       }
 
+      let parsedCurrency = h.native_currency || h.nativeCurrency || h.currency || null;
+      if (!parsedCurrency && h.notes) {
+        const curMatch = String(h.notes).match(/\[CURRENCY:\s*([A-Z]{3})\]/i);
+        if (curMatch && curMatch[1]) parsedCurrency = curMatch[1].toUpperCase();
+      }
+
       const investedAmt = Number(h.invested_amount ?? h.investedAmount ?? h.cost_price ?? 0);
       const currentVal = Number(h.current_value ?? h.currentValue ?? h.market_value ?? 0);
 
@@ -373,6 +379,7 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
           category: h.category || 'Asset Allocation',
           investedAmount: investedAmt,
           currentValue: currentVal,
+          nativeCurrency: parsedCurrency,
           units: null,
           notes: 'Confidential Discretionary Mandate',
           isRedacted: true,
@@ -387,6 +394,7 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
           category: h.category || 'Mutual Funds',
           investedAmount: investedAmt,
           currentValue: currentVal,
+          nativeCurrency: parsedCurrency,
           units: null,
           notes: '',
           isRedacted: true,
@@ -400,6 +408,7 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
         category: h.category || 'Mutual Funds',
         investedAmount: investedAmt,
         currentValue: currentVal,
+        nativeCurrency: parsedCurrency,
         units: parsedUnits > 0 ? parsedUnits : (h.units ? Number(h.units) : null),
         notes: h.notes || h.note || '',
         isRedacted: false,
@@ -756,13 +765,20 @@ export async function upsertHoldingToSupabase(holding, fundId) {
     } catch (e) {}
   }
 
-  // Backup units in notes metadata in case Postgres schema lacks units column
+  // Backup units and nativeCurrency in notes metadata in case Postgres schema lacks dedicated columns
   let notesVal = holding.notes || '';
   if (holding.units && Number(holding.units) > 0) {
     if (!notesVal.includes('[UNITS:')) {
       notesVal = notesVal ? `${notesVal} [UNITS: ${holding.units}]` : `[UNITS: ${holding.units}]`;
     } else {
       notesVal = notesVal.replace(/\[UNITS:\s*[\d\.]+\]/gi, `[UNITS: ${holding.units}]`);
+    }
+  }
+  if (holding.nativeCurrency) {
+    if (!notesVal.includes('[CURRENCY:')) {
+      notesVal = notesVal ? `${notesVal} [CURRENCY: ${holding.nativeCurrency}]` : `[CURRENCY: ${holding.nativeCurrency}]`;
+    } else {
+      notesVal = notesVal.replace(/\[CURRENCY:\s*[A-Z]{3}\]/gi, `[CURRENCY: ${holding.nativeCurrency}]`);
     }
   }
 

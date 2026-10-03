@@ -1,6 +1,8 @@
 // Unitized NAV Fund Accounting Engine & Types
 // Solves fair profit/loss distribution for multi-person pooled investments where capital is added/withdrawn at different times.
 
+import { convertCurrency } from '../services/fxService.js';
+
 export const CURRENCIES = {
   INR: { symbol: '₹', code: 'INR', label: 'INR (₹) - Indian Rupee', locale: 'en-IN' },
   USD: { symbol: '$', code: 'USD', label: 'USD ($) - US Dollar', locale: 'en-US' },
@@ -179,43 +181,46 @@ export const INITIAL_DEMO_DATA = {
   holdings: [
     {
       id: "ast_1",
-      name: "Nifty 50 Index ETF",
-      ticker: "NIFTYBEES",
-      category: "Equities / ETFs",
-      investedAmount: 140000,
-      currentValue: 172000,
-      allocationPct: 38.3,
-      notes: "Core passive broad market bedrock",
+      name: "Apple Inc. (NASDAQ)",
+      ticker: "AAPL",
+      category: "Equities / Stocks",
+      nativeCurrency: "USD",
+      units: 12,
+      investedAmount: 2400,
+      currentValue: 3200,
+      notes: "US Big Tech allocation",
     },
     {
       id: "ast_2",
-      name: "Bluechip Tech & Growth Basket",
-      ticker: "TECH-GROWTH",
-      category: "Equities / ETFs",
+      name: "Parag Parikh Flexi Cap Fund - Direct Growth",
+      ticker: "122639",
+      category: "Mutual Funds / ETFs",
+      nativeCurrency: "INR",
+      units: 1850.5,
       investedAmount: 110000,
       currentValue: 148500,
-      allocationPct: 33.1,
-      notes: "TCS, Infosys, Reliance, Tata Motors",
+      notes: "Core Indian equity compounding",
     },
     {
       id: "ast_3",
-      name: "Sovereign Gold & Gold ETF",
-      ticker: "GOLDBEES",
-      category: "Precious Metals",
-      investedAmount: 45000,
-      currentValue: 56000,
-      allocationPct: 12.5,
-      notes: "Inflation hedge and portfolio stabilizer",
+      name: "Bitcoin (Cold Storage)",
+      ticker: "BTC",
+      category: "Crypto",
+      nativeCurrency: "USD",
+      units: 0.12,
+      investedAmount: 6500,
+      currentValue: 8850,
+      notes: "Hardware wallet vault",
     },
     {
       id: "ast_4",
-      name: "High-Yield Liquid Cash Reserve",
+      name: "High-Yield Liquid Treasury & Cash",
       ticker: "CASH-LIQUID",
-      category: "Liquid Cash / Debt",
+      category: "Liquid Cash / Overnight",
+      nativeCurrency: "INR",
       investedAmount: 72000,
       currentValue: 72000,
-      allocationPct: 16.1,
-      notes: "Dry powder for dips & instant withdrawal buffer",
+      notes: "Dry powder for dips & instant redemption buffer",
     },
   ],
   personalFinances: {
@@ -381,7 +386,12 @@ export function computeFundState(fundInfo = {}, members = [], transactions = [],
   // Holdings represent the invested portion of the fund.
   // Cash deposited by members that has not yet been deployed into holdings must be added to AUM
   // to avoid diluting newly deposited capital.
-  const holdingsTotal = holdings.reduce((sum, h) => sum + (Number(h.currentValue) || 0), 0);
+  const fundCur = safeFundInfo.currency || 'INR';
+  const holdingsTotal = safeHoldings.reduce((sum, h) => {
+    const rawVal = Number(h.currentValue) || 0;
+    const hCur = h.nativeCurrency || h.currency || fundCur;
+    return sum + convertCurrency(rawVal, hCur, fundCur);
+  }, 0);
 
   // Find the most recent valuation_update in chronological transaction history
   let lastValIdx = -1;
@@ -402,7 +412,11 @@ export function computeFundState(fundInfo = {}, members = [], transactions = [],
     });
   } else {
     // If no valuation sync transaction exists, cash is total net deposits minus cost basis spent on holdings
-    const holdingsCost = holdings.reduce((s, h) => s + (Number(h.investedAmount) || Number(h.currentValue) || 0), 0);
+    const holdingsCost = safeHoldings.reduce((s, h) => {
+      const rawCost = Number(h.investedAmount) || Number(h.currentValue) || 0;
+      const hCur = h.nativeCurrency || h.currency || fundCur;
+      return s + convertCurrency(rawCost, hCur, fundCur);
+    }, 0);
     undeployedCash = totalDeposited - totalWithdrawn - holdingsCost;
   }
   undeployedCash = Math.max(0, undeployedCash);
