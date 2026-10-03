@@ -58,13 +58,15 @@ export default function AuthGateway({ onAuthenticated, onGuestAccess, onBackToLa
     try {
       if (mode === 'login') {
         const data = await signInWithEmail(email, password);
-        if (data?.user) {
-          onAuthenticated(data.user);
+        if (data?.session) {
+          onAuthenticated(data.session);
+        } else if (data?.user) {
+          onAuthenticated({ user: data.user });
         }
       } else {
         const data = await signUpWithEmail(email, password);
         if (data?.session) {
-          onAuthenticated(data.user);
+          onAuthenticated(data.session);
         } else if (data?.user) {
           setSuccessMsg('Account created successfully! If email confirmation is enabled on your Supabase project, check your inbox to confirm.');
           setMode('login');

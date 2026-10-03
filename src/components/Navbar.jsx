@@ -23,7 +23,6 @@ export default function Navbar({
   currentUser,
   onSignOut,
   isGuest,
-  onOpenLanding,
   availableFunds = [],
   onSwitchFund
 }) {
@@ -329,16 +328,6 @@ export default function Navbar({
                 {tab.label}
               </button>
             ))}
-            {onOpenLanding && (
-              <button
-                type="button"
-                onClick={onOpenLanding}
-                className="nav-tab-btn nav-tab-about"
-                title="View SyndicateOS Landing Page"
-              >
-                About
-              </button>
-            )}
           </nav>
         </div>
       </div>

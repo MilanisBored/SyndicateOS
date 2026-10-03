@@ -29,10 +29,9 @@ import {
 
 import Navbar from './components/Navbar';
 import DashboardView from './components/DashboardView';
+import AuthGateway from './components/AuthGateway';
 
 // Code-split secondary views & modals for faster load and smaller initial bundle
-const AuthGateway = lazy(() => import('./components/AuthGateway'));
-const LandingPage = lazy(() => import('./components/LandingPage'));
 const SyndicateView = lazy(() => import('./components/SyndicateView'));
 const HoldingsView = lazy(() => import('./components/HoldingsView'));
 const PersonalFinanceView = lazy(() => import('./components/PersonalFinanceView'));
@@ -46,6 +45,44 @@ const CreateFundModal = lazy(() => import('./components/CreateFundModal'));
 const ActionCenterModal = lazy(() => import('./components/ActionCenterModal'));
 
 import './App.css';
+
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error('Terminal render error caught by boundary:', error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: '32px 16px', maxWidth: '520px', margin: '60px auto', textAlign: 'center' }} className="card">
+          <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--loss)', marginBottom: '8px' }}>
+            Terminal Render Interrupted
+          </div>
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '16px', lineHeight: 1.4 }}>
+            An unexpected error occurred while updating the view ({this.state.error?.message || 'State sync error'}).
+          </div>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => {
+              this.setState({ hasError: false, error: null });
+              window.location.reload();
+            }}
+          >
+            Reload Terminal
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const STORAGE_KEY = 'syndicatevault_state_v2';
 
@@ -63,28 +100,8 @@ export default function App() {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   };
 
-  const isLocalDev = typeof window !== 'undefined' && (
-    window.location.hostname === 'localhost' || 
-    window.location.hostname === '127.0.0.1' ||
-    window.location.hostname.endsWith('.local')
-  );
-
-  const initialCachedSession = getCachedAuthSession();
-
-  // View & Auth Gateway State: 'landing' | 'auth' | 'app'
-  const [viewMode, setViewMode] = useState(() => {
-    if (initialCachedSession) return 'app';
-    return isLocalDev ? 'app' : 'landing';
-  });
-  const [session, setSession] = useState(() => {
-    if (initialCachedSession) return initialCachedSession;
-    if (isLocalDev) {
-      return { user: { email: 'dev@localhost', user_metadata: { full_name: 'Developer' } } };
-    }
-    return null;
-  });
-  const [isAuthChecking, setIsAuthChecking] = useState(!initialCachedSession && !isLocalDev);
-  const [isGuestMode, setIsGuestMode] = useState(false);
+  const [session, setSession] = useState(() => getCachedAuthSession());
+  const [isAuthChecking, setIsAuthChecking] = useState(() => !getCachedAuthSession());
 
   useEffect(() => {
     let isMounted = true;
@@ -100,13 +117,9 @@ export default function App() {
               }
               return currentSession;
             });
-            setViewMode('app');
             try {
               localStorage.setItem('syndicate_cached_session', JSON.stringify(currentSession));
             } catch (e) {}
-          } else if (isLocalDev) {
-            setSession((prev) => prev || { user: { email: 'dev@localhost', user_metadata: { full_name: 'Developer' } } });
-            setViewMode('app');
           } else {
             setSession(null);
             try {
@@ -127,17 +140,12 @@ export default function App() {
       if (isMounted) {
         if (newSession) {
           setSession(newSession);
-          setIsGuestMode(false);
-          setViewMode('app');
           try {
             localStorage.setItem('syndicate_cached_session', JSON.stringify(newSession));
           } catch (e) {}
           if (window.location.hash && window.location.hash.includes('access_token')) {
             window.history.replaceState(null, document.title, window.location.pathname + window.location.search);
           }
-        } else if (isLocalDev) {
-          setSession({ user: { email: 'dev@localhost', user_metadata: { full_name: 'Developer' } } });
-          setViewMode('app');
         } else {
           setSession(null);
           try {
@@ -151,7 +159,7 @@ export default function App() {
       isMounted = false;
       authListener?.subscription?.unsubscribe();
     };
-  }, [isLocalDev]);
+  }, []);
 
   const handleSignOut = async () => {
     try {
@@ -164,13 +172,7 @@ export default function App() {
       localStorage.removeItem('syndicate_cached_fund_state');
       localStorage.removeItem('syndicate_cached_funds_list');
     } catch (e) {}
-    if (isLocalDev) {
-      setViewMode('landing');
-    } else {
-      setSession(null);
-      setIsGuestMode(false);
-      setViewMode('landing');
-    }
+    setSession(null);
   };
 
   const isConnectedToCloud = isSupabaseConfigured();
@@ -639,7 +641,7 @@ export default function App() {
     ? fundMetrics.members.find((m) => m.id === selectedMemberForStatement.id) || selectedMemberForStatement
     : null;
 
-  // 1. Session initialization screen
+  // 1. Session initialization check
   if (isAuthChecking) {
     return (
       <div style={{
@@ -660,33 +662,19 @@ export default function App() {
     );
   }
 
-  // 2. Landing Page (Shown when viewMode is 'landing')
-  if (viewMode === 'landing') {
+  // 2. Unauthenticated: directly render AuthGateway without blank screen or dev page loop
+  if (!session) {
     return (
-      <Suspense fallback={<div className="loading-state mono p-4 text-center text-xs text-muted">Loading Landing...</div>}>
-        <LandingPage
-          onLaunchTerminal={() => setViewMode(isLocalDev ? 'app' : (session ? 'app' : 'auth'))}
-          theme={theme}
-          toggleTheme={toggleTheme}
-          isAuthenticated={Boolean(session || isLocalDev)}
-        />
-      </Suspense>
-    );
-  }
-
-  // 3. Auth Gateway Login/Register Guard (Bypassed entirely on local dev)
-  if (!session && !isLocalDev && viewMode === 'auth') {
-    return (
-      <Suspense fallback={<div className="loading-state mono p-4 text-center text-xs text-muted">Loading Auth...</div>}>
-        <AuthGateway
-          onAuthenticated={(user) => {
-            setSession({ user });
-            setViewMode('app');
-            refreshFromSupabase(null, true);
-          }}
-          onBackToLanding={() => setViewMode('landing')}
-        />
-      </Suspense>
+      <AuthGateway
+        onAuthenticated={(newSession) => {
+          const validSession = newSession?.user ? newSession : { user: newSession };
+          setSession(validSession);
+          try {
+            localStorage.setItem('syndicate_cached_session', JSON.stringify(validSession));
+          } catch (e) {}
+          refreshFromSupabase(null, true);
+        }}
+      />
     );
   }
 
@@ -715,37 +703,37 @@ export default function App() {
   }, [isInvestorUser, myMember, appState.transactions]);
 
   return (
-    <div className="app-wrapper">
-      <Navbar
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        fundInfo={appState.fundInfo}
-        currency={currency}
-        setCurrency={setCurrency}
-        theme={theme}
-        toggleTheme={toggleTheme}
-        onOpenTransactionModal={() => handleOpenTransactionModal()}
-        onOpenStatementModal={() => {
-          const myMem = fundMetrics.members.find(m => m.isMe || (session?.user?.email && m.email?.toLowerCase() === session?.user?.email?.toLowerCase()));
-          if (myMem) setSelectedMemberForStatement(myMem);
-          else setActiveTab('statements');
-        }}
-        onOpenActionCenter={() => setIsActionCenterOpen(true)}
-        pendingActionCount={pendingActionsCount}
-        disputedCount={disputedActionsCount}
-        perspective={effectivePerspective}
-        onTogglePerspective={togglePerspective}
-        onCreateFund={() => setIsCreateFundModalOpen(true)}
-        isCloudConnected={isConnectedToCloud}
-        isLoadingCloud={isLoadingCloud}
-        onRefreshCloud={refreshFromSupabase}
-        currentUser={session?.user}
-        onSignOut={handleSignOut}
-        isGuest={isGuestMode}
-        onOpenLanding={() => setViewMode('landing')}
-        availableFunds={availableFunds}
-        onSwitchFund={(fId) => refreshFromSupabase(fId)}
-      />
+    <ErrorBoundary>
+      <div className="app-wrapper">
+        <Navbar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          fundInfo={appState.fundInfo}
+          currency={currency}
+          setCurrency={setCurrency}
+          theme={theme}
+          toggleTheme={toggleTheme}
+          onOpenTransactionModal={() => handleOpenTransactionModal()}
+          onOpenStatementModal={() => {
+            const myMem = fundMetrics.members.find(m => m.isMe || (session?.user?.email && m.email?.toLowerCase() === session?.user?.email?.toLowerCase()));
+            if (myMem) setSelectedMemberForStatement(myMem);
+            else setActiveTab('statements');
+          }}
+          onOpenActionCenter={() => setIsActionCenterOpen(true)}
+          pendingActionCount={pendingActionsCount}
+          disputedCount={disputedActionsCount}
+          perspective={effectivePerspective}
+          onTogglePerspective={togglePerspective}
+          onCreateFund={() => setIsCreateFundModalOpen(true)}
+          isCloudConnected={isConnectedToCloud}
+          isLoadingCloud={isLoadingCloud}
+          onRefreshCloud={refreshFromSupabase}
+          currentUser={session?.user}
+          onSignOut={handleSignOut}
+          isGuest={false}
+          availableFunds={availableFunds}
+          onSwitchFund={(fId) => refreshFromSupabase(fId)}
+        />
 
       {cloudError && (
         <div 
@@ -914,6 +902,7 @@ export default function App() {
           />
         )}
       </Suspense>
-    </div>
+      </div>
+    </ErrorBoundary>
   );
 }
