@@ -7,21 +7,23 @@ const paddingX = 35;
 const paddingY = 15;
 
 export default function DashboardView({ 
-  fundMetrics, 
-  fundInfo, 
-  currency, 
-  transactions, 
-  members, 
-  holdings, 
-  personalFinances,
+  fundMetrics = {}, 
+  fundInfo = {}, 
+  currency = 'INR', 
+  transactions = [], 
+  members = [], 
+  holdings = [], 
+  personalFinances = {},
   currentUser,
   perspective = 'manager',
   onOpenTransactionModal,
   onConfirmTransaction,
   onSelectMember,
+  onOpenStatementModal,
   onOpenActionCenter
 }) {
   const [hoveredPoint, setHoveredPoint] = useState(null);
+  const handleSelectMember = onSelectMember || onOpenStatementModal || (() => {});
 
   const isInvestor = perspective === 'investor' || fundInfo?.userRole === 'investor';
   const userEmail = (currentUser?.email || '').toLowerCase().trim();
@@ -97,7 +99,7 @@ export default function DashboardView({
           <button 
             type="button" 
             className="btn btn-primary btn-sm mono"
-            onClick={() => onSelectMember(currentMember)}
+            onClick={() => handleSelectMember(currentMember)}
             style={{ fontSize: 11 }}
           >
             Full Statement
@@ -304,12 +306,12 @@ export default function DashboardView({
         {/* Member Equity Breakdown */}
         <div className="card chart-box">
           <div className="section-head">
-            <span className="section-title">Participants ({fundMetrics.members.length})</span>
+            <span className="section-title">Participants ({fundMetrics?.members?.length || 0})</span>
             {!isInvestor && (
               <button 
                 type="button" 
                 className="btn btn-secondary btn-sm"
-                onClick={() => onOpenTransactionModal()}
+                onClick={() => onOpenTransactionModal && onOpenTransactionModal()}
               >
                 + Entry
               </button>
@@ -317,14 +319,14 @@ export default function DashboardView({
           </div>
 
           <div className="compact-list">
-            {fundMetrics.members.map((m) => {
+            {(fundMetrics?.members || []).map((m) => {
               const isThisMe = m.id === currentMember?.id || m.isMe;
               return (
                 <div 
                   key={m.id} 
                   className="compact-list-row"
                   style={{ cursor: 'pointer', background: isThisMe ? 'rgba(99, 102, 241, 0.06)' : undefined }}
-                  onClick={() => onSelectMember(m)}
+                  onClick={() => handleSelectMember(m)}
                   title="View Statement"
                 >
                   <div>

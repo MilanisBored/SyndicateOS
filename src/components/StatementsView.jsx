@@ -14,11 +14,12 @@ export default function StatementsView({
   const isInvestor = perspective === 'investor' || fundInfo?.userRole === 'investor';
   const userEmail = (currentUser?.email || '').toLowerCase().trim();
 
-  const currentMember = fundMetrics.members.find(m => 
+  const memberList = fundMetrics?.members || [];
+  const currentMember = memberList.find(m => 
     m.isMe || 
     (userEmail && m.email && m.email.toLowerCase().trim() === userEmail) ||
     m.id === fundInfo?.myMemberId
-  ) || fundMetrics.members[0];
+  ) || memberList[0] || null;
 
   const handleCopySummary = (member) => {
     const text = generateShareableSummary(member, fundInfo, fundMetrics.currentNav);

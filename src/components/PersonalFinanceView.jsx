@@ -24,15 +24,15 @@ export default function PersonalFinanceView({
   const [astValue, setAstValue] = useState('');
   const [astInstitution, setAstInstitution] = useState('');
 
-  const totalMonthlyIncome = personalFinances.monthlyIncome.reduce(
+  const totalMonthlyIncome = (personalFinances?.monthlyIncome || []).reduce(
     (acc, inc) => acc + (Number(inc.amount) || 0), 
     0
   );
-  const totalSoloAssets = personalFinances.personalSoloAssets.reduce(
+  const totalSoloAssets = (personalFinances?.personalSoloAssets || []).reduce(
     (acc, ast) => acc + (Number(ast.value) || 0), 
     0
   );
-  const mySyndicateStake = fundMetrics.myStakeValue;
+  const mySyndicateStake = fundMetrics?.myStakeValue || 0;
   const myCombinedNetWorth = mySyndicateStake + totalSoloAssets;
 
   const handleAddIncome = (e) => {

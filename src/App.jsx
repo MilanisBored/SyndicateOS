@@ -46,43 +46,7 @@ const ActionCenterModal = lazy(() => import('./components/ActionCenterModal'));
 
 import './App.css';
 
-class ErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
-  static getDerivedStateFromError(error) {
-    return { hasError: true, error };
-  }
-  componentDidCatch(error, errorInfo) {
-    console.error('Terminal render error caught by boundary:', error, errorInfo);
-  }
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div style={{ padding: '32px 16px', maxWidth: '520px', margin: '60px auto', textAlign: 'center' }} className="card">
-          <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--loss)', marginBottom: '8px' }}>
-            Terminal Render Interrupted
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '16px', lineHeight: 1.4 }}>
-            An unexpected error occurred while updating the view ({this.state.error?.message || 'State sync error'}).
-          </div>
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            onClick={() => {
-              this.setState({ hasError: false, error: null });
-              window.location.reload();
-            }}
-          >
-            Reload Terminal
-          </button>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
+import ErrorBoundary from './components/ErrorBoundary';
 
 const STORAGE_KEY = 'syndicatevault_state_v2';
 
@@ -173,6 +137,15 @@ export default function App() {
       localStorage.removeItem('syndicate_cached_funds_list');
     } catch (e) {}
     setSession(null);
+    setAppState({
+      fundInfo: { name: 'Syndicate Pool', managerName: 'Manager', initialNav: 100, currency: 'INR' },
+      members: [],
+      transactions: [],
+      holdings: [],
+      personalFinances: { monthlyIncome: [], personalSoloAssets: [] }
+    });
+    setAvailableFunds([]);
+    setPendingInvitations([]);
   };
 
   const isConnectedToCloud = isSupabaseConfigured();
@@ -504,7 +477,7 @@ export default function App() {
           ...prev,
           members: [...prev.members, resolvedMember],
         }));
-        await refreshFromSupabase();
+        await refreshFromSupabase(appState.fundInfo?.id, true);
         return;
       } catch (e) {
         console.error('Supabase member insert failed:', e);
@@ -561,7 +534,7 @@ export default function App() {
           ...prev,
           transactions: [...prev.transactions, resolvedTx],
         }));
-        await refreshFromSupabase();
+        await refreshFromSupabase(appState.fundInfo?.id, true);
         return;
       } catch (e) {
         console.error('Supabase transaction insert failed:', e);
@@ -594,7 +567,7 @@ export default function App() {
     if (isConnectedToCloud) {
       try {
         await updateTransactionStatusInSupabase(txId, newStatus, notes, session?.user);
-        await refreshFromSupabase();
+        await refreshFromSupabase(appState.fundInfo?.id, true);
       } catch (e) {
         console.error('Failed to update transaction status in Supabase:', e);
         setCloudError(`Failed to update transaction status: ${e.message}`);
@@ -637,8 +610,35 @@ export default function App() {
     setIsTxModalOpen(true);
   };
 
+  // Calculate Action Center counts (Approvals & Discrepancies) with memoization
+  // Note: MUST be called unconditionally before any early returns to satisfy React Rules of Hooks
+  const userEmail = (session?.user?.email || '').toLowerCase().trim();
+  const myMember = useMemo(() => {
+    if (!fundMetrics?.members?.length) return null;
+    return fundMetrics.members.find(m => 
+      m.isMe || 
+      (userEmail && m.email && m.email.toLowerCase().trim() === userEmail) ||
+      m.id === appState.fundInfo?.myMemberId
+    ) || null;
+  }, [fundMetrics?.members, userEmail, appState.fundInfo?.myMemberId]);
+
+  const isInvestorUser = effectivePerspective === 'investor' || appState.fundInfo?.userRole === 'investor';
+  
+  const { pendingActionsCount, disputedActionsCount } = useMemo(() => {
+    const txs = appState.transactions || [];
+    const pending = isInvestorUser && myMember
+      ? txs.filter(t => (t.memberId === myMember.id || t.isMyTx) && t.status === 'pending').length
+      : txs.filter(t => t.status === 'pending').length;
+
+    const disputed = isInvestorUser && myMember
+      ? txs.filter(t => (t.memberId === myMember.id || t.isMyTx) && t.status === 'disputed').length
+      : txs.filter(t => t.status === 'disputed').length;
+
+    return { pendingActionsCount: pending, disputedActionsCount: disputed };
+  }, [isInvestorUser, myMember, appState.transactions]);
+
   const activeStatementMember = selectedMemberForStatement 
-    ? fundMetrics.members.find((m) => m.id === selectedMemberForStatement.id) || selectedMemberForStatement
+    ? (fundMetrics?.members || []).find((m) => m.id === selectedMemberForStatement.id) || selectedMemberForStatement
     : null;
 
   // 1. Session initialization check
@@ -677,30 +677,6 @@ export default function App() {
       />
     );
   }
-
-  // Calculate Action Center counts (Approvals & Discrepancies) with memoization
-  const userEmail = (session?.user?.email || '').toLowerCase().trim();
-  const myMember = useMemo(() => {
-    return fundMetrics.members.find(m => 
-      m.isMe || 
-      (userEmail && m.email && m.email.toLowerCase().trim() === userEmail) ||
-      m.id === appState.fundInfo?.myMemberId
-    );
-  }, [fundMetrics.members, userEmail, appState.fundInfo?.myMemberId]);
-
-  const isInvestorUser = effectivePerspective === 'investor' || appState.fundInfo?.userRole === 'investor';
-  
-  const { pendingActionsCount, disputedActionsCount } = useMemo(() => {
-    const pending = isInvestorUser && myMember
-      ? appState.transactions.filter(t => (t.memberId === myMember.id || t.isMyTx) && t.status === 'pending').length
-      : appState.transactions.filter(t => t.status === 'pending').length;
-
-    const disputed = isInvestorUser && myMember
-      ? appState.transactions.filter(t => (t.memberId === myMember.id || t.isMyTx) && t.status === 'disputed').length
-      : appState.transactions.filter(t => t.status === 'disputed').length;
-
-    return { pendingActionsCount: pending, disputedActionsCount: disputed };
-  }, [isInvestorUser, myMember, appState.transactions]);
 
   return (
     <ErrorBoundary>

@@ -236,18 +236,24 @@ export const INITIAL_DEMO_DATA = {
 /**
  * Calculates complete state of the Fund and each Member's fair share
  */
-export function computeFundState(fundInfo, members, transactions, holdings = []) {
+export function computeFundState(fundInfo = {}, members = [], transactions = [], holdings = []) {
+  const safeFundInfo = fundInfo || {};
+  const safeMembers = Array.isArray(members) ? members : [];
+  const safeTransactions = Array.isArray(transactions) ? transactions : [];
+  const safeHoldings = Array.isArray(holdings) ? holdings : [];
+
   // Sort transactions chronologically
-  const sortedTx = [...transactions].sort((a, b) => new Date(a.date) - new Date(b.date));
+  const sortedTx = [...safeTransactions].sort((a, b) => new Date(a.date || '1970-01-01') - new Date(b.date || '1970-01-01'));
 
   // Initialize tracking
-  let currentNav = fundInfo.initialNav || 100.0;
+  let currentNav = Number(safeFundInfo.initialNav) || 100.0;
   let totalUnits = 0;
   let totalDeposited = 0;
   let totalWithdrawn = 0;
 
   const memberStats = {};
-  members.forEach((m) => {
+  safeMembers.forEach((m) => {
+    if (!m || !m.id) return;
     memberStats[m.id] = {
       ...m,
       units: 0,
@@ -258,6 +264,7 @@ export function computeFundState(fundInfo, members, transactions, holdings = [])
       history: [],
     };
   });
+
 
   const timeline = [];
 
@@ -411,10 +418,16 @@ export function computeFundState(fundInfo, members, transactions, holdings = [])
   }
 
   // Calculate Member Metrics using exact ownership allocation invariant
-  // Sum of all members' currentValue strictly equals totalFundAUM at any scale (from ₹100 to ₹100 Crore)
-  const computedMembers = members.map((m) => {
-    const stats = memberStats[m.id];
-    const units = stats.units;
+  const computedMembers = safeMembers.map((m) => {
+    const stats = memberStats[m.id] || {
+      units: 0,
+      totalDeposited: 0,
+      totalWithdrawn: 0,
+      transactionCount: 0,
+      lastActivityDate: null,
+      history: [],
+    };
+    const units = stats.units || 0;
     const ownershipRatio = totalUnits > 0 ? (units / totalUnits) : 0;
     const ownershipPct = ownershipRatio * 100;
 
