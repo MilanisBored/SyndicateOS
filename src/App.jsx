@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
 import { 
   INITIAL_DEMO_DATA, 
   computeFundState 
@@ -22,25 +22,28 @@ import {
   declineSyndicateInvitation,
   getSupabase,
   getAuthSession,
+  getCachedAuthSession,
   signOutUser,
   onAuthChange
 } from './lib/supabaseClient';
 
 import Navbar from './components/Navbar';
-import AuthGateway from './components/AuthGateway';
-import LandingPage from './components/LandingPage';
 import DashboardView from './components/DashboardView';
-import SyndicateView from './components/SyndicateView';
-import HoldingsView from './components/HoldingsView';
-import PersonalFinanceView from './components/PersonalFinanceView';
-import StatementsView from './components/StatementsView';
-import SettingsView from './components/SettingsView';
 
-import TransactionModal from './components/TransactionModal';
-import MemberModal from './components/MemberModal';
-import StatementModal from './components/StatementModal';
-import CreateFundModal from './components/CreateFundModal';
-import ActionCenterModal from './components/ActionCenterModal';
+// Code-split secondary views & modals for faster load and smaller initial bundle
+const AuthGateway = lazy(() => import('./components/AuthGateway'));
+const LandingPage = lazy(() => import('./components/LandingPage'));
+const SyndicateView = lazy(() => import('./components/SyndicateView'));
+const HoldingsView = lazy(() => import('./components/HoldingsView'));
+const PersonalFinanceView = lazy(() => import('./components/PersonalFinanceView'));
+const StatementsView = lazy(() => import('./components/StatementsView'));
+const SettingsView = lazy(() => import('./components/SettingsView'));
+
+const TransactionModal = lazy(() => import('./components/TransactionModal'));
+const MemberModal = lazy(() => import('./components/MemberModal'));
+const StatementModal = lazy(() => import('./components/StatementModal'));
+const CreateFundModal = lazy(() => import('./components/CreateFundModal'));
+const ActionCenterModal = lazy(() => import('./components/ActionCenterModal'));
 
 import './App.css';
 
@@ -66,15 +69,21 @@ export default function App() {
     window.location.hostname.endsWith('.local')
   );
 
+  const initialCachedSession = getCachedAuthSession();
+
   // View & Auth Gateway State: 'landing' | 'auth' | 'app'
-  // On local development, bypass auth and jump directly to terminal
-  const [viewMode, setViewMode] = useState(() => (isLocalDev ? 'app' : 'landing'));
-  const [session, setSession] = useState(() => (
-    isLocalDev 
-      ? { user: { email: 'milan@localhost', user_metadata: { full_name: 'Milan (Local Dev)' } } } 
-      : null
-  ));
-  const [isAuthChecking, setIsAuthChecking] = useState(!isLocalDev);
+  const [viewMode, setViewMode] = useState(() => {
+    if (initialCachedSession) return 'app';
+    return isLocalDev ? 'app' : 'landing';
+  });
+  const [session, setSession] = useState(() => {
+    if (initialCachedSession) return initialCachedSession;
+    if (isLocalDev) {
+      return { user: { email: 'milan@localhost', user_metadata: { full_name: 'Milan (Local Dev)' } } };
+    }
+    return null;
+  });
+  const [isAuthChecking, setIsAuthChecking] = useState(!initialCachedSession && !isLocalDev);
   const [isGuestMode, setIsGuestMode] = useState(false);
 
   useEffect(() => {
@@ -85,11 +94,24 @@ export default function App() {
         const currentSession = await getAuthSession();
         if (isMounted) {
           if (currentSession) {
-            setSession(currentSession);
+            setSession((prev) => {
+              if (prev?.user?.id === currentSession?.user?.id && prev?.user?.email === currentSession?.user?.email) {
+                return prev;
+              }
+              return currentSession;
+            });
             setViewMode('app');
+            try {
+              localStorage.setItem('syndicate_cached_session', JSON.stringify(currentSession));
+            } catch (e) {}
           } else if (isLocalDev) {
-            setSession({ user: { email: 'milan@localhost', user_metadata: { full_name: 'Milan (Local Dev)' } } });
+            setSession((prev) => prev || { user: { email: 'milan@localhost', user_metadata: { full_name: 'Milan (Local Dev)' } } });
             setViewMode('app');
+          } else {
+            setSession(null);
+            try {
+              localStorage.removeItem('syndicate_cached_session');
+            } catch (e) {}
           }
         }
       } catch (err) {
@@ -107,13 +129,20 @@ export default function App() {
           setSession(newSession);
           setIsGuestMode(false);
           setViewMode('app');
-          // Clean up URL hash after Google OAuth redirect
+          try {
+            localStorage.setItem('syndicate_cached_session', JSON.stringify(newSession));
+          } catch (e) {}
           if (window.location.hash && window.location.hash.includes('access_token')) {
             window.history.replaceState(null, document.title, window.location.pathname + window.location.search);
           }
         } else if (isLocalDev) {
           setSession({ user: { email: 'milan@localhost', user_metadata: { full_name: 'Milan (Local Dev)' } } });
           setViewMode('app');
+        } else {
+          setSession(null);
+          try {
+            localStorage.removeItem('syndicate_cached_session');
+          } catch (e) {}
         }
       }
     });
@@ -130,8 +159,12 @@ export default function App() {
     } catch (e) {
       console.error('Sign out error:', e);
     }
+    try {
+      localStorage.removeItem('syndicate_cached_session');
+      localStorage.removeItem('syndicate_cached_fund_state');
+      localStorage.removeItem('syndicate_cached_funds_list');
+    } catch (e) {}
     if (isLocalDev) {
-      // On local dev, toggle between landing and app freely
       setViewMode('landing');
     } else {
       setSession(null);
@@ -144,35 +177,49 @@ export default function App() {
   const [isLoadingCloud, setIsLoadingCloud] = useState(false);
   const [cloudError, setCloudError] = useState('');
 
-  // Primary application data state
+  // Primary application data state: instantaneous load from cache without layout shift
   const [appState, setAppState] = useState(() => {
-    // If Supabase is configured, start clean and await DB fetch
-    if (isConnectedToCloud) {
-      return {
-        fundInfo: { name: 'Syndicate Fund', managerName: 'Milan', initialNav: 100, currency: 'INR' },
-        members: [],
-        transactions: [],
-        holdings: [],
-        personalFinances: { monthlyIncome: [], personalSoloAssets: [] }
-      };
-    }
-    // Otherwise fallback to local storage
+    try {
+      const cached = localStorage.getItem('syndicate_cached_fund_state');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed?.fundInfo) return parsed;
+      }
+    } catch (e) {}
+
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) return JSON.parse(saved);
-    } catch (e) {
-      console.error(e);
-    }
-    return INITIAL_DEMO_DATA;
+    } catch (e) {}
+
+    return {
+      fundInfo: { name: 'Syndicate Pool', managerName: 'Manager', initialNav: 100, currency: 'INR' },
+      members: [],
+      transactions: [],
+      holdings: [],
+      personalFinances: { monthlyIncome: [], personalSoloAssets: [] }
+    };
   });
 
-  const [availableFunds, setAvailableFunds] = useState([]);
+  const [availableFunds, setAvailableFunds] = useState(() => {
+    try {
+      const saved = localStorage.getItem('syndicate_cached_funds_list');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return [];
+  });
   const [pendingInvitations, setPendingInvitations] = useState([]);
+  const isFetchingRef = useRef(false);
 
-  // Supabase Fetcher (Multi-tenant: scoped to current user session)
-  const refreshFromSupabase = useCallback(async (targetFundId = null) => {
+  // Supabase Fetcher (Multi-tenant: scoped to current user session, deduplicated)
+  const refreshFromSupabase = useCallback(async (targetFundId = null, force = false) => {
     if (!isSupabaseConfigured()) return;
 
+    if (isFetchingRef.current && !force) {
+      return;
+    }
+
+    isFetchingRef.current = true;
     setIsLoadingCloud(true);
     setCloudError('');
 
@@ -181,19 +228,29 @@ export default function App() {
       if (cloudData) {
         if (cloudData.availableFunds) {
           setAvailableFunds(cloudData.availableFunds);
+          try {
+            localStorage.setItem('syndicate_cached_funds_list', JSON.stringify(cloudData.availableFunds));
+          } catch (e) {}
         }
         if (cloudData.pendingInvitations) {
           setPendingInvitations(cloudData.pendingInvitations);
         } else {
           setPendingInvitations([]);
         }
-        setAppState({
+
+        const newAppState = {
           fundInfo: cloudData.fundInfo || { name: 'Syndicate Pool', managerName: 'Manager', initialNav: 100, currency: 'INR' },
-          members: cloudData.members, // Filtered strictly to active pool
-          transactions: cloudData.transactions, // Filtered strictly to active pool
-          holdings: cloudData.holdings, // Filtered strictly to active pool
-          personalFinances: cloudData.personalFinances, // Filtered strictly to current user
-        });
+          members: cloudData.members,
+          transactions: cloudData.transactions,
+          holdings: cloudData.holdings,
+          personalFinances: cloudData.personalFinances,
+        };
+
+        setAppState(newAppState);
+
+        try {
+          localStorage.setItem('syndicate_cached_fund_state', JSON.stringify(newAppState));
+        } catch (e) {}
 
         if (cloudData.fundInfo?.currency) {
           setCurrency(cloudData.fundInfo.currency);
@@ -203,14 +260,15 @@ export default function App() {
       console.error('Error fetching live data from Supabase:', err);
       setCloudError(err.message || 'Failed to fetch from Supabase. Ensure schema.sql was run.');
     } finally {
+      isFetchingRef.current = false;
       setIsLoadingCloud(false);
     }
-  }, [session]);
+  }, [session?.user?.id, session?.user?.email]);
 
   const handleAcceptInvitation = async (inv) => {
     try {
       await acceptSyndicateInvitation(inv.memberId);
-      await refreshFromSupabase(inv.fundId);
+      await refreshFromSupabase(inv.fundId, true);
     } catch (err) {
       alert('Failed to accept syndicate invitation: ' + err.message);
     }
@@ -219,7 +277,7 @@ export default function App() {
   const handleDeclineInvitation = async (inv) => {
     try {
       await declineSyndicateInvitation(inv.memberId);
-      await refreshFromSupabase();
+      await refreshFromSupabase(null, true);
     } catch (err) {
       alert('Failed to decline invitation: ' + err.message);
     }
@@ -229,7 +287,7 @@ export default function App() {
     if (isConnectedToCloud) {
       refreshFromSupabase(appState.fundInfo?.id);
     }
-  }, [isConnectedToCloud, refreshFromSupabase, session]);
+  }, [isConnectedToCloud, refreshFromSupabase]);
 
   // Persist locally if offline or local mode
   useEffect(() => {
@@ -302,12 +360,14 @@ export default function App() {
     }
   };
 
-  const fundMetrics = computeFundState(
-    appState.fundInfo,
-    appState.members,
-    appState.transactions,
-    appState.holdings
-  );
+  const fundMetrics = useMemo(() => {
+    return computeFundState(
+      appState.fundInfo,
+      appState.members,
+      appState.transactions,
+      appState.holdings
+    );
+  }, [appState.fundInfo, appState.members, appState.transactions, appState.holdings]);
 
   const setFundInfo = (newInfo) => {
     setAppState((prev) => ({ ...prev, fundInfo: newInfo }));
@@ -603,45 +663,56 @@ export default function App() {
   // 2. Landing Page (Shown when viewMode is 'landing')
   if (viewMode === 'landing') {
     return (
-      <LandingPage
-        onLaunchTerminal={() => setViewMode(isLocalDev ? 'app' : (session ? 'app' : 'auth'))}
-        theme={theme}
-        toggleTheme={toggleTheme}
-        isAuthenticated={Boolean(session || isLocalDev)}
-      />
+      <Suspense fallback={<div className="loading-state mono p-4 text-center text-xs text-muted">Loading Landing...</div>}>
+        <LandingPage
+          onLaunchTerminal={() => setViewMode(isLocalDev ? 'app' : (session ? 'app' : 'auth'))}
+          theme={theme}
+          toggleTheme={toggleTheme}
+          isAuthenticated={Boolean(session || isLocalDev)}
+        />
+      </Suspense>
     );
   }
 
   // 3. Auth Gateway Login/Register Guard (Bypassed entirely on local dev)
   if (!session && !isLocalDev && viewMode === 'auth') {
     return (
-      <AuthGateway
-        onAuthenticated={(user) => {
-          setSession({ user });
-          setViewMode('app');
-          refreshFromSupabase();
-        }}
-        onBackToLanding={() => setViewMode('landing')}
-      />
+      <Suspense fallback={<div className="loading-state mono p-4 text-center text-xs text-muted">Loading Auth...</div>}>
+        <AuthGateway
+          onAuthenticated={(user) => {
+            setSession({ user });
+            setViewMode('app');
+            refreshFromSupabase(null, true);
+          }}
+          onBackToLanding={() => setViewMode('landing')}
+        />
+      </Suspense>
     );
   }
 
-  // Calculate Action Center counts (Approvals & Discrepancies)
+  // Calculate Action Center counts (Approvals & Discrepancies) with memoization
   const userEmail = (session?.user?.email || '').toLowerCase().trim();
-  const myMember = fundMetrics.members.find(m => 
-    m.isMe || 
-    (userEmail && m.email && m.email.toLowerCase().trim() === userEmail) ||
-    m.id === appState.fundInfo?.myMemberId
-  );
-  const isInvestorUser = effectivePerspective === 'investor' || appState.fundInfo?.userRole === 'investor';
-  const pendingTxsCount = isInvestorUser && myMember
-    ? appState.transactions.filter(t => (t.memberId === myMember.id || t.isMyTx) && t.status === 'pending').length
-    : appState.transactions.filter(t => t.status === 'pending').length;
-  const pendingActionsCount = pendingTxsCount;
+  const myMember = useMemo(() => {
+    return fundMetrics.members.find(m => 
+      m.isMe || 
+      (userEmail && m.email && m.email.toLowerCase().trim() === userEmail) ||
+      m.id === appState.fundInfo?.myMemberId
+    );
+  }, [fundMetrics.members, userEmail, appState.fundInfo?.myMemberId]);
 
-  const disputedActionsCount = isInvestorUser && myMember
-    ? appState.transactions.filter(t => (t.memberId === myMember.id || t.isMyTx) && t.status === 'disputed').length
-    : appState.transactions.filter(t => t.status === 'disputed').length;
+  const isInvestorUser = effectivePerspective === 'investor' || appState.fundInfo?.userRole === 'investor';
+  
+  const { pendingActionsCount, disputedActionsCount } = useMemo(() => {
+    const pending = isInvestorUser && myMember
+      ? appState.transactions.filter(t => (t.memberId === myMember.id || t.isMyTx) && t.status === 'pending').length
+      : appState.transactions.filter(t => t.status === 'pending').length;
+
+    const disputed = isInvestorUser && myMember
+      ? appState.transactions.filter(t => (t.memberId === myMember.id || t.isMyTx) && t.status === 'disputed').length
+      : appState.transactions.filter(t => t.status === 'disputed').length;
+
+    return { pendingActionsCount: pending, disputedActionsCount: disputed };
+  }, [isInvestorUser, myMember, appState.transactions]);
 
   return (
     <div className="app-wrapper">
@@ -695,150 +766,154 @@ export default function App() {
       )}
 
       <main className="main-content">
-        {activeTab === 'dashboard' && (
-          <DashboardView
-            fundMetrics={fundMetrics}
-            fundInfo={appState.fundInfo}
-            currency={currency}
-            transactions={appState.transactions}
-            members={appState.members}
-            holdings={appState.holdings}
-            personalFinances={appState.personalFinances}
-            currentUser={session?.user}
-            perspective={effectivePerspective}
-            onOpenTransactionModal={handleOpenTransactionModal}
-            onConfirmTransaction={handleConfirmTransaction}
-            onSelectMember={(m) => setSelectedMemberForStatement(m)}
-            onOpenActionCenter={() => setIsActionCenterOpen(true)}
-          />
-        )}
+        <Suspense fallback={<div className="loading-state mono p-4 text-center text-xs text-muted">Loading module...</div>}>
+          {activeTab === 'dashboard' && (
+            <DashboardView
+              fundMetrics={fundMetrics}
+              fundInfo={appState.fundInfo}
+              currency={currency}
+              transactions={appState.transactions}
+              members={appState.members}
+              holdings={appState.holdings}
+              personalFinances={appState.personalFinances}
+              currentUser={session?.user}
+              perspective={effectivePerspective}
+              onOpenTransactionModal={handleOpenTransactionModal}
+              onConfirmTransaction={handleConfirmTransaction}
+              onSelectMember={(m) => setSelectedMemberForStatement(m)}
+              onOpenActionCenter={() => setIsActionCenterOpen(true)}
+            />
+          )}
 
-        {activeTab === 'syndicate' && (
-          <SyndicateView
-            fundMetrics={fundMetrics}
-            fundInfo={appState.fundInfo}
-            currency={currency}
-            transactions={appState.transactions}
-            holdings={appState.holdings}
-            currentUser={session?.user}
-            perspective={effectivePerspective}
-            onOpenTransactionModal={handleOpenTransactionModal}
-            onOpenMemberModal={() => setIsMemberModalOpen(true)}
-            onDeleteMember={handleDeleteMember}
-            onConfirmTransaction={handleConfirmTransaction}
-            onSelectMember={(m) => setSelectedMemberForStatement(m)}
-          />
-        )}
+          {activeTab === 'syndicate' && (
+            <SyndicateView
+              fundMetrics={fundMetrics}
+              fundInfo={appState.fundInfo}
+              currency={currency}
+              transactions={appState.transactions}
+              holdings={appState.holdings}
+              currentUser={session?.user}
+              perspective={effectivePerspective}
+              onOpenTransactionModal={handleOpenTransactionModal}
+              onOpenMemberModal={() => setIsMemberModalOpen(true)}
+              onDeleteMember={handleDeleteMember}
+              onConfirmTransaction={handleConfirmTransaction}
+              onSelectMember={(m) => setSelectedMemberForStatement(m)}
+            />
+          )}
 
-        {activeTab === 'holdings' && (
-          <HoldingsView
-            holdings={appState.holdings}
-            onSaveHolding={handleSaveHolding}
-            onDeleteHolding={handleDeleteHolding}
-            fundMetrics={fundMetrics}
-            currency={currency}
-            fundInfo={appState.fundInfo}
-            perspective={effectivePerspective}
-            onSyncValuationToNAV={handleSyncHoldingsToNAV}
-          />
-        )}
+          {activeTab === 'holdings' && (
+            <HoldingsView
+              holdings={appState.holdings}
+              onSaveHolding={handleSaveHolding}
+              onDeleteHolding={handleDeleteHolding}
+              fundMetrics={fundMetrics}
+              currency={currency}
+              fundInfo={appState.fundInfo}
+              perspective={effectivePerspective}
+              onSyncValuationToNAV={handleSyncHoldingsToNAV}
+            />
+          )}
 
-        {activeTab === 'personal' && (
-          <PersonalFinanceView
-            personalFinances={appState.personalFinances}
-            setPersonalFinances={setPersonalFinances}
-            fundMetrics={fundMetrics}
-            currency={currency}
-            onAddIncome={handleAddIncome}
-            onDeleteIncome={handleDeleteIncome}
-            onAddSoloAsset={handleAddSoloAsset}
-            onDeleteSoloAsset={handleDeleteSoloAsset}
-          />
-        )}
+          {activeTab === 'personal' && (
+            <PersonalFinanceView
+              personalFinances={appState.personalFinances}
+              setPersonalFinances={setPersonalFinances}
+              fundMetrics={fundMetrics}
+              currency={currency}
+              onAddIncome={handleAddIncome}
+              onDeleteIncome={handleDeleteIncome}
+              onAddSoloAsset={handleAddSoloAsset}
+              onDeleteSoloAsset={handleDeleteSoloAsset}
+            />
+          )}
 
-        {activeTab === 'statements' && (
-          <StatementsView
-            fundMetrics={fundMetrics}
-            fundInfo={appState.fundInfo}
-            currency={currency}
-            currentUser={session?.user}
-            perspective={effectivePerspective}
-            onSelectMember={(m) => setSelectedMemberForStatement(m)}
-          />
-        )}
+          {activeTab === 'statements' && (
+            <StatementsView
+              fundMetrics={fundMetrics}
+              fundInfo={appState.fundInfo}
+              currency={currency}
+              currentUser={session?.user}
+              perspective={effectivePerspective}
+              onSelectMember={(m) => setSelectedMemberForStatement(m)}
+            />
+          )}
 
-        {activeTab === 'settings' && (
-          <SettingsView
-            fundInfo={appState.fundInfo}
-            setFundInfo={setFundInfo}
-            currency={currency}
-            setCurrency={setCurrency}
-            allAppState={appState}
-            onRestoreBackup={handleRestoreBackup}
-            onResetDemoData={handleResetDemoData}
-            onRefreshFromSupabase={refreshFromSupabase}
-            currentUser={session?.user}
-          />
-        )}
+          {activeTab === 'settings' && (
+            <SettingsView
+              fundInfo={appState.fundInfo}
+              setFundInfo={setFundInfo}
+              currency={currency}
+              setCurrency={setCurrency}
+              allAppState={appState}
+              onRestoreBackup={handleRestoreBackup}
+              onResetDemoData={handleResetDemoData}
+              onRefreshFromSupabase={refreshFromSupabase}
+              currentUser={session?.user}
+            />
+          )}
+        </Suspense>
       </main>
 
-      {/* Modals */}
-      {isTxModalOpen && (
-        <TransactionModal
-          initialData={txModalInitial}
-          members={appState.members}
-          fundMetrics={fundMetrics}
-          fundInfo={appState.fundInfo}
-          currency={currency}
-          onSave={handleAddTransaction}
-          onClose={() => setIsTxModalOpen(false)}
-        />
-      )}
+      {/* Lazy Modals with Suspense */}
+      <Suspense fallback={null}>
+        {isTxModalOpen && (
+          <TransactionModal
+            initialData={txModalInitial}
+            members={appState.members}
+            fundMetrics={fundMetrics}
+            fundInfo={appState.fundInfo}
+            currency={currency}
+            onSave={handleAddTransaction}
+            onClose={() => setIsTxModalOpen(false)}
+          />
+        )}
 
-      {isMemberModalOpen && (
-        <MemberModal
-          onAddMember={handleAddMember}
-          onClose={() => setIsMemberModalOpen(false)}
-        />
-      )}
+        {isMemberModalOpen && (
+          <MemberModal
+            onAddMember={handleAddMember}
+            onClose={() => setIsMemberModalOpen(false)}
+          />
+        )}
 
-      {activeStatementMember && (
-        <StatementModal
-          member={activeStatementMember}
-          fundInfo={appState.fundInfo}
-          currentNav={fundMetrics.currentNav}
-          currency={currency}
-          onClose={() => setSelectedMemberForStatement(null)}
-        />
-      )}
+        {activeStatementMember && (
+          <StatementModal
+            member={activeStatementMember}
+            fundInfo={appState.fundInfo}
+            currentNav={fundMetrics.currentNav}
+            currency={currency}
+            onClose={() => setSelectedMemberForStatement(null)}
+          />
+        )}
 
-      {isCreateFundModalOpen && (
-        <CreateFundModal
-          isOpen={isCreateFundModalOpen}
-          onClose={() => setIsCreateFundModalOpen(false)}
-          onCreateFund={handleCreateFund}
-          currentUser={session?.user}
-        />
-      )}
+        {isCreateFundModalOpen && (
+          <CreateFundModal
+            isOpen={isCreateFundModalOpen}
+            onClose={() => setIsCreateFundModalOpen(false)}
+            onCreateFund={handleCreateFund}
+            currentUser={session?.user}
+          />
+        )}
 
-      {isActionCenterOpen && (
-        <ActionCenterModal
-          isOpen={isActionCenterOpen}
-          onClose={() => setIsActionCenterOpen(false)}
-          transactions={appState.transactions}
-          members={appState.members}
-          fundInfo={appState.fundInfo}
-          fundMetrics={fundMetrics}
-          currency={currency}
-          perspective={effectivePerspective}
-          currentUser={session?.user}
-          onConfirmTransaction={handleConfirmTransaction}
-          onOpenTransactionModal={() => {
-            setIsActionCenterOpen(false);
-            handleOpenTransactionModal();
-          }}
-        />
-      )}
+        {isActionCenterOpen && (
+          <ActionCenterModal
+            isOpen={isActionCenterOpen}
+            onClose={() => setIsActionCenterOpen(false)}
+            transactions={appState.transactions}
+            members={appState.members}
+            fundInfo={appState.fundInfo}
+            fundMetrics={fundMetrics}
+            currency={currency}
+            perspective={effectivePerspective}
+            currentUser={session?.user}
+            onConfirmTransaction={handleConfirmTransaction}
+            onOpenTransactionModal={() => {
+              setIsActionCenterOpen(false);
+              handleOpenTransactionModal();
+            }}
+          />
+        )}
+      </Suspense>
     </div>
   );
 }

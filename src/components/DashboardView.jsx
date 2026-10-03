@@ -1,5 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { formatCurrency, formatNumber } from '../utils/navEngine';
+
+const chartWidth = 560;
+const chartHeight = 130;
+const paddingX = 35;
+const paddingY = 15;
 
 export default function DashboardView({ 
   fundMetrics, 
@@ -22,45 +27,51 @@ export default function DashboardView({
   const userEmail = (currentUser?.email || '').toLowerCase().trim();
 
   // Resolve current member profile
-  const currentMember = fundMetrics.members.find(m => 
-    m.isMe || 
-    (userEmail && m.email && m.email.toLowerCase().trim() === userEmail) ||
-    m.id === fundInfo?.myMemberId
-  ) || fundMetrics.members[0];
+  const currentMember = useMemo(() => {
+    if (!fundMetrics?.members?.length) return null;
+    return fundMetrics.members.find(m => 
+      m.isMe || 
+      (userEmail && m.email && m.email.toLowerCase().trim() === userEmail) ||
+      m.id === fundInfo?.myMemberId
+    ) || fundMetrics.members[0] || null;
+  }, [fundMetrics?.members, userEmail, fundInfo?.myMemberId]);
 
   const [txFilter, setTxFilter] = useState(isInvestor ? 'my' : 'all');
 
   // Pending transfers awaiting this investor's confirmation
-  const pendingInvestorTx = currentMember ? transactions.filter(t => 
-    (t.memberId === currentMember.id || t.isMyTx) && t.status === 'pending'
-  ) : [];
+  const pendingInvestorTx = useMemo(() => {
+    return currentMember ? transactions.filter(t => 
+      (t.memberId === currentMember.id || t.isMyTx) && t.status === 'pending'
+    ) : [];
+  }, [currentMember, transactions]);
 
   // Solo Assets Total
-  const soloAssetsTotal = personalFinances?.personalSoloAssets?.reduce(
-    (acc, a) => acc + (Number(a.value) || 0), 
-    0
-  ) || 0;
+  const soloAssetsTotal = useMemo(() => {
+    return personalFinances?.personalSoloAssets?.reduce(
+      (acc, a) => acc + (Number(a.value) || 0), 
+      0
+    ) || 0;
+  }, [personalFinances?.personalSoloAssets]);
 
   // Chart coordinates
-  const timeline = fundMetrics.timeline || [];
-  const minNav = timeline.length > 0 ? Math.min(...timeline.map((t) => t.nav)) * 0.98 : 95;
-  const maxNav = timeline.length > 0 ? Math.max(...timeline.map((t) => t.nav)) * 1.02 : 150;
-  const navRange = maxNav - minNav || 1;
+  const { points, svgPath, minNav, maxNav, navRange } = useMemo(() => {
+    const timeline = fundMetrics.timeline || [];
+    const minNav = timeline.length > 0 ? Math.min(...timeline.map((t) => t.nav)) * 0.98 : 95;
+    const maxNav = timeline.length > 0 ? Math.max(...timeline.map((t) => t.nav)) * 1.02 : 150;
+    const navRange = maxNav - minNav || 1;
 
-  const chartWidth = 560;
-  const chartHeight = 130;
-  const paddingX = 35;
-  const paddingY = 15;
+    const calculatedPoints = timeline.map((item, index) => {
+      const x = paddingX + (index / Math.max(1, timeline.length - 1)) * (chartWidth - paddingX * 2);
+      const y = chartHeight - paddingY - ((item.nav - minNav) / navRange) * (chartHeight - paddingY * 2);
+      return { ...item, x, y };
+    });
 
-  const points = timeline.map((item, index) => {
-    const x = paddingX + (index / Math.max(1, timeline.length - 1)) * (chartWidth - paddingX * 2);
-    const y = chartHeight - paddingY - ((item.nav - minNav) / navRange) * (chartHeight - paddingY * 2);
-    return { ...item, x, y };
-  });
+    const path = calculatedPoints.length > 0
+      ? calculatedPoints.reduce((acc, p, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`, '')
+      : '';
 
-  const svgPath = points.length > 0
-    ? points.reduce((acc, p, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`, '')
-    : '';
+    return { points: calculatedPoints, svgPath: path, minNav, maxNav, navRange };
+  }, [fundMetrics.timeline]);
 
   const managerName = fundInfo?.managerName || 'Fund Manager';
 
@@ -387,9 +398,10 @@ export default function DashboardView({
               {[...transactions]
                 .filter(tx => {
                   if (txFilter === 'my' && currentMember) {
+                    const memberNameLower = (currentMember.name || '').toLowerCase();
                     return tx.memberId === currentMember.id || 
-                           (tx.memberName && tx.memberName.toLowerCase() === currentMember.name.toLowerCase()) ||
-                           (tx.note && tx.note.toLowerCase().includes(currentMember.name.toLowerCase())) ||
+                           (memberNameLower && tx.memberName && tx.memberName.toLowerCase() === memberNameLower) ||
+                           (memberNameLower && tx.note && tx.note.toLowerCase().includes(memberNameLower)) ||
                            tx.isMyTx;
                   }
                   return true;

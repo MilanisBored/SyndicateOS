@@ -47,15 +47,17 @@ export function isSupabaseConfigured() {
 }
 
 let supabaseInstance = null;
+let cachedUrl = null;
 let cachedKey = null;
 
 export function getSupabase() {
   const { url, key } = getSupabaseCredentials();
   if (!url || !key) return null;
 
-  if (!supabaseInstance || supabaseInstance.supabaseUrl !== url || cachedKey !== key) {
+  if (!supabaseInstance || cachedUrl !== url || cachedKey !== key) {
     try {
       supabaseInstance = createClient(url, key);
+      cachedUrl = url;
       cachedKey = key;
     } catch (e) {
       console.error('Error creating Supabase client:', e);
@@ -63,6 +65,29 @@ export function getSupabase() {
     }
   }
   return supabaseInstance;
+}
+
+export function getCachedAuthSession() {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    const explicit = localStorage.getItem('syndicate_cached_session');
+    if (explicit) {
+      const parsed = JSON.parse(explicit);
+      if (parsed?.user) return parsed;
+    }
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('sb-') && k.endsWith('-auth-token')) {
+        const raw = localStorage.getItem(k);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const sess = parsed?.currentSession || parsed;
+          if (sess?.user) return sess;
+        }
+      }
+    }
+  } catch (e) {}
+  return null;
 }
 
 // ==========================================================================
