@@ -53,7 +53,7 @@ ALTER TABLE members ADD CONSTRAINT members_relationship_check
 CREATE TABLE IF NOT EXISTS transactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     fund_id UUID REFERENCES funds(id) ON DELETE CASCADE,
-    member_id UUID REFERENCES members(id) ON DELETE SET NULL,
+    member_id UUID REFERENCES members(id) ON DELETE CASCADE,
     type TEXT NOT NULL CHECK (type IN ('deposit', 'withdrawal', 'valuation_update')),
     amount NUMERIC(20, 2) NOT NULL,
     nav NUMERIC(20, 6) NOT NULL,

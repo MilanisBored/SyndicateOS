@@ -289,7 +289,16 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
       };
     });
 
-    // Filter holdings strictly by active fund
+    // Retain fund valuation updates, active member transactions, and historical settled records
+    const validTransactions = transactions.filter(t => {
+      if (t.type === 'valuation_update') return true;
+      if (t.memberId && members.some(m => String(m.id).toLowerCase() === String(t.memberId).toLowerCase())) return true;
+      // Retain audited historical records with member name
+      if (t.memberName || (t.note && (t.note.toLowerCase().includes('payout') || t.note.toLowerCase().includes('exit')))) {
+        return true;
+      }
+      return false;
+    });
     const rawHoldings = allHoldings.filter(h => !activeFundId || h.fund_id === activeFundId);
     const holdings = rawHoldings.map(h => {
       let parsedUnits = Number(h.units ?? h.quantity ?? 0);
@@ -388,7 +397,7 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
         myMemberId: null,
       },
       members,
-      transactions,
+      transactions: validTransactions,
       holdings,
       personalFinances: {
         monthlyIncome,
@@ -559,9 +568,25 @@ export async function insertMemberToSupabase(member, fundId) {
   return data;
 }
 
-export async function deleteMemberFromSupabase(memberId) {
+export async function deleteMemberFromSupabase(memberId, options = {}) {
   const sb = getSupabase();
   if (!sb || !memberId) return;
+
+  if (options.action === 'purge') {
+    // Purge mistake/test entries completely from ledger
+    try {
+      await sb.from('transactions').delete().eq('member_id', memberId);
+    } catch (err) {
+      console.warn('Could not purge member transactions:', err);
+    }
+  } else {
+    // Member exited with payout recorded: disassociate transactions so audit trail remains in ledger
+    try {
+      await sb.from('transactions').update({ member_id: null }).eq('member_id', memberId);
+    } catch (err) {}
+  }
+
+  // Delete member from members roster
   const { error } = await sb.from('members').delete().eq('id', memberId);
   if (error) throw error;
 }

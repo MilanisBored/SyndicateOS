@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { formatCurrency, formatNumber } from '../utils/navEngine';
+import MemberDeleteGatekeeperModal from './MemberDeleteGatekeeperModal';
 
 export default function SyndicateView({ 
   fundMetrics, 
@@ -19,6 +20,7 @@ export default function SyndicateView({
   const [filterType, setFilterType] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [memberForDeletion, setMemberForDeletion] = useState(null);
 
   const isInvestor = perspective === 'investor' || fundInfo?.userRole === 'investor';
   const userEmail = (currentUser?.email || '').toLowerCase().trim();
@@ -154,11 +156,7 @@ export default function SyndicateView({
                       className="btn btn-secondary btn-sm"
                       style={{ color: 'var(--loss)', borderColor: 'rgba(239, 68, 68, 0.3)', padding: '2px 8px', fontSize: 11 }}
                       title={`Remove ${member.name} from syndicate`}
-                      onClick={() => {
-                        if (window.confirm(`Are you sure you want to remove "${member.name}" from this syndicate?`)) {
-                          onDeleteMember(member.id);
-                        }
-                      }}
+                      onClick={() => setMemberForDeletion(member)}
                     >
                       Remove
                     </button>
@@ -385,6 +383,36 @@ export default function SyndicateView({
           </table>
         </div>
       </div>
+
+      {/* Member Removal Gatekeeper Modal */}
+      {memberForDeletion && (
+        <MemberDeleteGatekeeperModal
+          isOpen={Boolean(memberForDeletion)}
+          onClose={() => setMemberForDeletion(null)}
+          member={memberForDeletion}
+          fundMetrics={fundMetrics}
+          fundInfo={fundInfo}
+          currency={currency}
+          onConfirmDelete={(memberId) => onDeleteMember(memberId, { action: 'purge' })}
+          onRecordPayoutAndRemove={async (mem, amount, units, note) => {
+            const currentNav = fundMetrics?.currentNav > 0 ? fundMetrics.currentNav : fundInfo?.initialNav || 100.0;
+            const exitTx = {
+              id: `tx_${Date.now()}`,
+              date: new Date().toISOString().split('T')[0],
+              type: 'withdrawal',
+              memberId: mem.id,
+              memberName: mem.name,
+              amount: Number(amount) || 0,
+              nav: currentNav,
+              units: Number(units) || 0,
+              status: 'verified',
+              note: note,
+            };
+            await onDeleteMember(mem.id, { action: 'payout', exitTransaction: exitTx });
+          }}
+          onOpenTransactionModal={onOpenTransactionModal}
+        />
+      )}
     </div>
   );
 }

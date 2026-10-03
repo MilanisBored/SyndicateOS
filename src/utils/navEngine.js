@@ -305,6 +305,9 @@ export function computeFundState(fundInfo, members, transactions, holdings = [])
         currentNav = tx.amount / totalUnits;
       }
     } else if (isDeposit) {
+      // Guard against orphaned transactions: deposits without an active member cannot issue phantom units
+      if (!targetStat) return;
+
       const navAtTx = tx.nav || currentNav || fundInfo.initialNav || 100.0;
       // Derive exact units from amount / navAtTx to avoid database decimal truncation
       const unitsCreated = (navAtTx > 0 && tx.amount > 0)
@@ -314,19 +317,20 @@ export function computeFundState(fundInfo, members, transactions, holdings = [])
       totalUnits += unitsCreated;
       totalDeposited += tx.amount;
 
-      if (targetStat) {
-        targetStat.units += unitsCreated;
-        targetStat.totalDeposited += tx.amount;
-        targetStat.transactionCount += 1;
-        targetStat.lastActivityDate = tx.date;
-        targetStat.history.push({
-          ...tx,
-          navUsed: navAtTx,
-          unitsCalculated: unitsCreated,
-          memberUnitsAfter: targetStat.units,
-        });
-      }
+      targetStat.units += unitsCreated;
+      targetStat.totalDeposited += tx.amount;
+      targetStat.transactionCount += 1;
+      targetStat.lastActivityDate = tx.date;
+      targetStat.history.push({
+        ...tx,
+        navUsed: navAtTx,
+        unitsCalculated: unitsCreated,
+        memberUnitsAfter: targetStat.units,
+      });
     } else if (isWithdrawal) {
+      // Guard against orphaned transactions
+      if (!targetStat) return;
+
       const navAtTx = tx.nav || currentNav || fundInfo.initialNav || 100.0;
       const unitsRedeemed = (navAtTx > 0 && tx.amount > 0)
         ? (tx.amount / navAtTx)
@@ -335,18 +339,16 @@ export function computeFundState(fundInfo, members, transactions, holdings = [])
       totalUnits = Math.max(0, totalUnits - unitsRedeemed);
       totalWithdrawn += tx.amount;
 
-      if (targetStat) {
-        targetStat.units = Math.max(0, targetStat.units - unitsRedeemed);
-        targetStat.totalWithdrawn += tx.amount;
-        targetStat.transactionCount += 1;
-        targetStat.lastActivityDate = tx.date;
-        targetStat.history.push({
-          ...tx,
-          navUsed: navAtTx,
-          unitsCalculated: unitsRedeemed,
-          memberUnitsAfter: targetStat.units,
-        });
-      }
+      targetStat.units = Math.max(0, targetStat.units - unitsRedeemed);
+      targetStat.totalWithdrawn += tx.amount;
+      targetStat.transactionCount += 1;
+      targetStat.lastActivityDate = tx.date;
+      targetStat.history.push({
+        ...tx,
+        navUsed: navAtTx,
+        unitsCalculated: unitsRedeemed,
+        memberUnitsAfter: targetStat.units,
+      });
     }
 
     const currentPortfolioValue = totalUnits * currentNav;
@@ -361,6 +363,12 @@ export function computeFundState(fundInfo, members, transactions, holdings = [])
       note: tx.note,
     });
   });
+
+  // Strict Invariant: Total fund units must strictly equal the sum of active members' units
+  // Guarantees zero phantom dilution even if orphaned records exist in database
+  totalUnits = Object.values(memberStats).reduce((sum, s) => sum + (Number(s.units) || 0), 0);
+  totalDeposited = Object.values(memberStats).reduce((sum, s) => sum + (Number(s.totalDeposited) || 0), 0);
+  totalWithdrawn = Object.values(memberStats).reduce((sum, s) => sum + (Number(s.totalWithdrawn) || 0), 0);
 
   // Calculate current fund total AUM
   // Holdings represent the invested portion of the fund.

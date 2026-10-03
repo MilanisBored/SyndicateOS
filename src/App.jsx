@@ -430,10 +430,15 @@ export default function App() {
     }));
   };
 
-  const handleDeleteMember = async (memberId) => {
+  const handleDeleteMember = async (memberId, options = {}) => {
+    // 1. If an exit payout transaction was specified by the gatekeeper, record it first
+    if (options.exitTransaction) {
+      await handleAddTransaction(options.exitTransaction);
+    }
+
     if (isConnectedToCloud) {
       try {
-        await deleteMemberFromSupabase(memberId);
+        await deleteMemberFromSupabase(memberId, options);
         await refreshFromSupabase(appState.fundInfo?.id);
         return;
       } catch (err) {
@@ -444,6 +449,9 @@ export default function App() {
     setAppState((prev) => ({
       ...prev,
       members: prev.members.filter((m) => m.id !== memberId),
+      transactions: options.action === 'purge'
+        ? prev.transactions.filter((t) => t.memberId !== memberId)
+        : prev.transactions,
     }));
   };
 
