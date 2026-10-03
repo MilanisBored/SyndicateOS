@@ -13,7 +13,8 @@ export default function DashboardView({
   perspective = 'manager',
   onOpenTransactionModal,
   onConfirmTransaction,
-  onSelectMember 
+  onSelectMember,
+  onOpenActionCenter
 }) {
   const [hoveredPoint, setHoveredPoint] = useState(null);
 
@@ -93,65 +94,26 @@ export default function DashboardView({
         </div>
       )}
 
-      {/* Two-Way Transfer Verification Notification for Investor */}
-      {pendingInvestorTx.length > 0 && (
+      {/* Compact Action Strip Linking Directly to Top-Right Action Center */}
+      {pendingInvestorTx.length > 0 && onOpenActionCenter && (
         <div 
-          className="card p-3 mb-3"
-          style={{ background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.35)' }}
+          className="card px-3 py-2 mb-3 flex justify-between items-center text-xs"
+          style={{ background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.3)' }}
         >
-          <div className="action-required-header flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <span className="badge badge-warning mono font-semibold" style={{ fontSize: 10, padding: '2px 7px' }}>ACTION REQUIRED</span>
-              <span className="font-semibold text-sm">
-                {pendingInvestorTx.length} Pending Transfer{pendingInvestorTx.length > 1 ? 's' : ''} Awaiting Confirmation
-              </span>
-            </div>
-            <span className="text-xs text-muted">
-              Confirming guarantees an audited match with your bank/UPI transfer.
+          <div className="flex items-center gap-2">
+            <span className="badge badge-warning mono font-semibold" style={{ fontSize: 9, padding: '2px 6px' }}>ACTION REQUIRED</span>
+            <span className="font-medium text-xs">
+              {pendingInvestorTx.length} pending transfer{pendingInvestorTx.length > 1 ? 's' : ''} awaiting your confirmation
             </span>
           </div>
-
-          <div className="flex flex-col gap-2">
-            {pendingInvestorTx.map(tx => (
-              <div 
-                key={tx.id} 
-                className="card p-2 action-required-item flex justify-between items-center text-xs"
-                style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border-subtle)' }}
-              >
-                <div>
-                  <span className="font-semibold block">
-                    {tx.type === 'deposit' ? 'Deposit' : 'Withdrawal'} of {formatCurrency(tx.amount, currency)} ({formatNumber(tx.units, 2)} units @ NAV {formatCurrency(tx.nav, currency)}) on {tx.date}
-                  </span>
-                  <span className="text-muted block text-xs">
-                    Memo: "{tx.note || 'Transfer'}"
-                  </span>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    className="btn btn-primary btn-sm mono"
-                    style={{ fontSize: 11, padding: '3px 9px' }}
-                    onClick={() => onConfirmTransaction && onConfirmTransaction(tx.id, 'verified', 'Confirmed by investor')}
-                  >
-                    Confirm Deposit
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm mono"
-                    style={{ fontSize: 11, padding: '3px 9px', color: 'var(--loss)' }}
-                    onClick={() => {
-                      const reason = prompt('Please describe the discrepancy (e.g. transferred different amount, incorrect date):');
-                      if (reason !== null) {
-                        onConfirmTransaction && onConfirmTransaction(tx.id, 'disputed', reason);
-                      }
-                    }}
-                  >
-                    Report Discrepancy
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+          <button 
+            type="button" 
+            className="btn btn-secondary btn-sm mono"
+            onClick={onOpenActionCenter}
+            style={{ fontSize: 11, padding: '2px 8px' }}
+          >
+            Review in Action Center [ACT: {pendingInvestorTx.length}] &rarr;
+          </button>
         </div>
       )}
 

@@ -11,6 +11,9 @@ export default function Navbar({
   toggleTheme, 
   onOpenTransactionModal,
   onOpenStatementModal,
+  onOpenActionCenter,
+  pendingActionCount = 0,
+  disputedCount = 0,
   onCreateFund,
   perspective = 'manager',
   onTogglePerspective,
@@ -157,6 +160,31 @@ export default function Navbar({
                 </option>
               ))}
             </select>
+
+            {/* Action & Notification Center Key */}
+            {onOpenActionCenter && (
+              <button
+                type="button"
+                className={`badge mono topbar-badge ${
+                  pendingActionCount > 0 
+                    ? 'badge-warning' 
+                    : disputedCount > 0 
+                    ? 'badge-loss' 
+                    : 'badge-neutral'
+                }`}
+                onClick={onOpenActionCenter}
+                title="Action Center: Approvals, Rejections, and Fund Updates"
+                style={{ padding: '3px 8px', fontWeight: 600 }}
+              >
+                <span className="mono">
+                  {pendingActionCount > 0 
+                    ? `[ACT: ${pendingActionCount}]` 
+                    : disputedCount > 0 
+                    ? `[DISP: ${disputedCount}]` 
+                    : '[ACT: 0]'}
+                </span>
+              </button>
+            )}
 
             {/* Theme Toggle */}
             <button 

@@ -38,6 +38,7 @@ import TransactionModal from './components/TransactionModal';
 import MemberModal from './components/MemberModal';
 import StatementModal from './components/StatementModal';
 import CreateFundModal from './components/CreateFundModal';
+import ActionCenterModal from './components/ActionCenterModal';
 
 import './App.css';
 
@@ -223,6 +224,7 @@ export default function App() {
   const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
   const [isCreateFundModalOpen, setIsCreateFundModalOpen] = useState(false);
   const [selectedMemberForStatement, setSelectedMemberForStatement] = useState(null);
+  const [isActionCenterOpen, setIsActionCenterOpen] = useState(false);
 
   // Dual Perspective: 'auto' adapts to whether user owns this fund; manager can toggle preview
   const [perspectiveMode, setPerspectiveMode] = useState('auto');
@@ -590,6 +592,21 @@ export default function App() {
     );
   }
 
+  // Calculate Action Center counts (Approvals & Discrepancies)
+  const userEmail = (session?.user?.email || '').toLowerCase().trim();
+  const myMember = fundMetrics.members.find(m => 
+    m.isMe || 
+    (userEmail && m.email && m.email.toLowerCase().trim() === userEmail) ||
+    m.id === appState.fundInfo?.myMemberId
+  );
+  const isInvestorUser = effectivePerspective === 'investor' || appState.fundInfo?.userRole === 'investor';
+  const pendingActionsCount = isInvestorUser && myMember
+    ? appState.transactions.filter(t => (t.memberId === myMember.id || t.isMyTx) && t.status === 'pending').length
+    : appState.transactions.filter(t => t.status === 'pending').length;
+  const disputedActionsCount = isInvestorUser && myMember
+    ? appState.transactions.filter(t => (t.memberId === myMember.id || t.isMyTx) && t.status === 'disputed').length
+    : appState.transactions.filter(t => t.status === 'disputed').length;
+
   return (
     <div className="app-wrapper">
       <Navbar
@@ -606,6 +623,9 @@ export default function App() {
           if (myMem) setSelectedMemberForStatement(myMem);
           else setActiveTab('statements');
         }}
+        onOpenActionCenter={() => setIsActionCenterOpen(true)}
+        pendingActionCount={pendingActionsCount}
+        disputedCount={disputedActionsCount}
         perspective={effectivePerspective}
         onTogglePerspective={togglePerspective}
         onCreateFund={() => setIsCreateFundModalOpen(true)}
@@ -653,6 +673,7 @@ export default function App() {
             onOpenTransactionModal={handleOpenTransactionModal}
             onConfirmTransaction={handleConfirmTransaction}
             onSelectMember={(m) => setSelectedMemberForStatement(m)}
+            onOpenActionCenter={() => setIsActionCenterOpen(true)}
           />
         )}
 
@@ -760,6 +781,25 @@ export default function App() {
           onClose={() => setIsCreateFundModalOpen(false)}
           onCreateFund={handleCreateFund}
           currentUser={session?.user}
+        />
+      )}
+
+      {isActionCenterOpen && (
+        <ActionCenterModal
+          isOpen={isActionCenterOpen}
+          onClose={() => setIsActionCenterOpen(false)}
+          transactions={appState.transactions}
+          members={appState.members}
+          fundInfo={appState.fundInfo}
+          fundMetrics={fundMetrics}
+          currency={currency}
+          perspective={effectivePerspective}
+          currentUser={session?.user}
+          onConfirmTransaction={handleConfirmTransaction}
+          onOpenTransactionModal={() => {
+            setIsActionCenterOpen(false);
+            handleOpenTransactionModal();
+          }}
         />
       )}
     </div>
