@@ -7,13 +7,27 @@ export default function SyndicateView({
   currency, 
   transactions, 
   holdings = [],
+  currentUser,
+  perspective = 'manager',
   onOpenTransactionModal, 
   onOpenMemberModal, 
+  onDeleteMember,
+  onConfirmTransaction,
   onSelectMember 
 }) {
   const [filterMember, setFilterMember] = useState('all');
   const [filterType, setFilterType] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+
+  const isInvestor = perspective === 'investor' || fundInfo?.userRole === 'investor';
+  const userEmail = (currentUser?.email || '').toLowerCase().trim();
+
+  const currentMember = fundMetrics.members.find(m => 
+    m.isMe || 
+    (userEmail && m.email && m.email.toLowerCase().trim() === userEmail) ||
+    m.id === fundInfo?.myMemberId
+  );
 
   const resolveMember = (tx) => {
     if (!tx) return null;
@@ -30,6 +44,7 @@ export default function SyndicateView({
       const member = resolveMember(tx);
       if (filterMember !== 'all' && tx.memberId !== filterMember && member?.id !== filterMember) return false;
       if (filterType !== 'all' && tx.type !== filterType) return false;
+      if (filterStatus !== 'all' && (tx.status || 'verified') !== filterStatus) return false;
       if (searchTerm) {
         const term = searchTerm.toLowerCase();
         const matchesNote = tx.note?.toLowerCase().includes(term);
@@ -53,25 +68,33 @@ export default function SyndicateView({
           </span>
         </div>
         <div className="flex gap-2">
-          <button 
-            type="button" 
-            className="btn btn-secondary btn-sm"
-            onClick={onOpenMemberModal}
-          >
-            + Add Member
-          </button>
-          <button 
-            type="button" 
-            className="btn btn-primary btn-sm"
-            onClick={() => onOpenTransactionModal()}
-          >
-            + Transaction
-          </button>
+          {!isInvestor ? (
+            <>
+              <button 
+                type="button" 
+                className="btn btn-secondary btn-sm"
+                onClick={onOpenMemberModal}
+              >
+                + Add Member
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-primary btn-sm"
+                onClick={() => onOpenTransactionModal()}
+              >
+                + Transaction
+              </button>
+            </>
+          ) : (
+            <span className="badge badge-neutral mono text-xs">
+              Managed by {fundInfo?.managerName || 'Fund Manager'}
+            </span>
+          )}
         </div>
       </div>
 
       {/* Unallocated Holdings Notice */}
-      {holdings.length > 0 && fundMetrics.totalUnits === 0 && (
+      {holdings.length > 0 && fundMetrics.totalUnits === 0 && !isInvestor && (
         <div 
           className="card p-3 mb-4 flex justify-between items-center text-xs"
           style={{ background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.25)' }}
@@ -81,7 +104,7 @@ export default function SyndicateView({
               Holdings of {formatCurrency(totalHoldingsVal, currency)} Detected (0 Member Units Issued)
             </span>
             <span className="text-muted block">
-              Holdings represent the assets owned by the pool. To give Milan or Parul their ownership units & equity, record their initial deposit transactions using the <strong>Deposit</strong> buttons below.
+              Holdings represent the assets owned by the pool. To give members their ownership units & equity, record their initial deposit transactions using the <strong>Deposit</strong> buttons below.
             </span>
           </div>
           <div className="flex gap-2 shrink-0 ml-3">
@@ -101,80 +124,120 @@ export default function SyndicateView({
 
       {/* Compact Member Cards Grid */}
       <div className="member-cards-grid">
-        {fundMetrics.members.map((member) => (
-          <div key={member.id} className="card member-box">
-            <div className="member-box-head">
-              <div>
-                <span className="font-semibold text-base block">{member.name}</span>
-                <span className="text-xs text-muted">{member.role}</span>
+        {fundMetrics.members.map((member) => {
+          const isThisMe = member.isMe || (userEmail && member.email && member.email.toLowerCase().trim() === userEmail);
+          return (
+            <div 
+              key={member.id} 
+              className="card member-box"
+              style={isThisMe ? { border: '1px solid var(--accent)', boxShadow: '0 0 0 1px var(--accent)' } : {}}
+            >
+              <div className="member-box-head">
+                <div>
+                  <span className="font-semibold text-base flex items-center gap-2">
+                    {member.name}
+                    {isThisMe && (
+                      <span className="badge badge-profit mono" style={{ fontSize: 9, padding: '1px 5px' }}>
+                        You
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-xs text-muted">{member.role}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="badge badge-neutral mono font-semibold">
+                    {formatNumber(member.ownershipPct, 1)}%
+                  </span>
+                  {!isInvestor && member.relationship !== 'self' && onDeleteMember && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      style={{ color: 'var(--loss)', borderColor: 'rgba(239, 68, 68, 0.3)', padding: '2px 8px', fontSize: 11 }}
+                      title={`Remove ${member.name} from syndicate`}
+                      onClick={() => {
+                        if (window.confirm(`Are you sure you want to remove "${member.name}" from this syndicate?`)) {
+                          onDeleteMember(member.id);
+                        }
+                      }}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
               </div>
-              <span className="badge badge-neutral mono font-semibold">
-                {formatNumber(member.ownershipPct, 1)}%
-              </span>
-            </div>
 
-            <div className="member-box-data">
-              <div className="data-col">
-                <span className="lbl">Current Equity</span>
-                <span className="val mono">{formatCurrency(member.currentValue, currency)}</span>
-                <span className="text-xs text-muted mono">{formatNumber(member.units, 2)} units</span>
+              <div className="member-box-data">
+                <div className="data-col">
+                  <span className="lbl">Current Equity</span>
+                  <span className="val mono">{formatCurrency(member.currentValue, currency)}</span>
+                  <span className="text-xs text-muted mono">{formatNumber(member.units, 2)} units</span>
+                </div>
+                <div className="data-col">
+                  <span className="lbl">Net Return</span>
+                  <span className={`val mono ${member.totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
+                    {member.totalProfit >= 0 ? '+' : ''}{formatCurrency(member.totalProfit, currency, { decimals: 0 })}
+                  </span>
+                  <span className={`text-xs mono ${member.roiPercentage >= 0 ? 'text-profit' : 'text-loss'}`}>
+                    {member.roiPercentage >= 0 ? '+' : ''}{formatNumber(member.roiPercentage, 1)}%
+                  </span>
+                </div>
+                <div className="data-col">
+                  <span className="lbl">Total Deposited</span>
+                  <span className="text-xs mono font-medium mt-1 block">
+                    {formatCurrency(member.totalDeposited, currency, { decimals: 0 })}
+                  </span>
+                </div>
+                <div className="data-col">
+                  <span className="lbl">Total Withdrawn</span>
+                  <span className="text-xs mono font-medium mt-1 block">
+                    {formatCurrency(member.totalWithdrawn, currency, { decimals: 0 })}
+                  </span>
+                </div>
               </div>
-              <div className="data-col">
-                <span className="lbl">Net Return</span>
-                <span className={`val mono ${member.totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
-                  {member.totalProfit >= 0 ? '+' : ''}{formatCurrency(member.totalProfit, currency, { decimals: 0 })}
-                </span>
-                <span className={`text-xs mono ${member.roiPercentage >= 0 ? 'text-profit' : 'text-loss'}`}>
-                  {member.roiPercentage >= 0 ? '+' : ''}{formatNumber(member.roiPercentage, 1)}%
-                </span>
-              </div>
-              <div className="data-col">
-                <span className="lbl">Total Deposited</span>
-                <span className="text-xs mono font-medium mt-1 block">
-                  {formatCurrency(member.totalDeposited, currency, { decimals: 0 })}
-                </span>
-              </div>
-              <div className="data-col">
-                <span className="lbl">Total Withdrawn</span>
-                <span className="text-xs mono font-medium mt-1 block">
-                  {formatCurrency(member.totalWithdrawn, currency, { decimals: 0 })}
-                </span>
-              </div>
-            </div>
 
-            <div className="flex justify-between items-center pt-2">
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => onSelectMember(member)}
-              >
-                Statement
-              </button>
-              <div className="flex gap-1">
+              <div className="flex justify-between items-center pt-2">
                 <button
                   type="button"
                   className="btn btn-secondary btn-sm"
-                  onClick={() => onOpenTransactionModal({ memberId: member.id, type: 'withdrawal' })}
+                  onClick={() => onSelectMember(member)}
                 >
-                  Withdraw
+                  Statement
                 </button>
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  onClick={() => onOpenTransactionModal({ memberId: member.id, type: 'deposit' })}
-                >
-                  Deposit
-                </button>
+                {!isInvestor && (
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => onOpenTransactionModal({ memberId: member.id, type: 'withdrawal' })}
+                    >
+                      Withdraw
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={() => onOpenTransactionModal({ memberId: member.id, type: 'deposit' })}
+                    >
+                      Deposit
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Compact Ledger Section */}
       <div className="card p-4 mt-4">
         <div className="section-head">
-          <span className="section-title">Transactions Ledger</span>
+          <div className="flex items-center gap-2">
+            <span className="section-title">Transactions Ledger</span>
+            {transactions.filter(t => t.status === 'pending').length > 0 && (
+              <span className="badge badge-warning mono text-xs" style={{ padding: '2px 7px' }}>
+                ⏳ {transactions.filter(t => t.status === 'pending').length} Pending Confirmation
+              </span>
+            )}
+          </div>
 
           {/* Filters */}
           <div className="flex gap-2">
@@ -208,6 +271,17 @@ export default function SyndicateView({
               <option value="withdrawal">Withdrawals</option>
               <option value="valuation_update">Valuation</option>
             </select>
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="form-select"
+              style={{ width: 110, padding: '4px 8px', fontSize: 11 }}
+            >
+              <option value="all">All Status</option>
+              <option value="verified">Verified</option>
+              <option value="pending">Pending</option>
+              <option value="disputed">Disputed</option>
+            </select>
           </div>
         </div>
 
@@ -221,13 +295,14 @@ export default function SyndicateView({
                 <th>Amount</th>
                 <th>NAV</th>
                 <th>Units</th>
+                <th>Status</th>
                 <th>Memo</th>
               </tr>
             </thead>
             <tbody>
               {filteredTx.length === 0 ? (
                 <tr>
-                  <td colSpan="7" className="text-center text-muted py-6">
+                  <td colSpan="8" className="text-center text-muted py-6">
                     No transactions found.
                   </td>
                 </tr>
@@ -237,12 +312,23 @@ export default function SyndicateView({
                   const isDeposit = tx.type === 'deposit';
                   const isWithdrawal = tx.type === 'withdrawal';
                   const isValuation = tx.type === 'valuation_update';
+                  const txStatus = tx.status || 'verified';
+                  const isThisMyTx = currentMember && (
+                    tx.memberId === currentMember.id || 
+                    tx.isMyTx || 
+                    (member && member.id === currentMember.id)
+                  );
 
                   return (
-                    <tr key={tx.id}>
+                    <tr key={tx.id} style={isThisMyTx ? { background: 'rgba(99, 102, 241, 0.05)' } : {}}>
                       <td className="mono text-muted">{tx.date}</td>
                       <td className="font-medium">
                         {member ? member.name : isValuation ? 'Valuation Update' : (tx.memberName || 'Investor')}
+                        {isThisMyTx && (
+                          <span className="badge badge-profit mono ml-2" style={{ fontSize: 9, padding: '1px 4px' }}>
+                            You
+                          </span>
+                        )}
                       </td>
                       <td>
                         <span className={`badge ${
@@ -260,7 +346,35 @@ export default function SyndicateView({
                       <td className="mono text-muted">
                         {isValuation ? '—' : `${formatNumber(tx.units, 2)}`}
                       </td>
-                      <td className="text-muted text-xs truncate" style={{ maxWidth: 260 }}>
+                      <td>
+                        {txStatus === 'pending' ? (
+                          <div className="flex items-center gap-1">
+                            <span className="badge badge-warning mono" style={{ fontSize: 10, padding: '2px 5px' }}>
+                              ⏳ Pending
+                            </span>
+                            {(isThisMyTx || !isInvestor) && onConfirmTransaction && (
+                              <button
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                style={{ fontSize: 9, padding: '1px 5px', lineHeight: 1.2 }}
+                                title="Confirm receipt"
+                                onClick={() => onConfirmTransaction(tx.id, 'verified', isInvestor ? 'Confirmed by investor' : 'Verified by manager')}
+                              >
+                                Confirm
+                              </button>
+                            )}
+                          </div>
+                        ) : txStatus === 'disputed' ? (
+                          <span className="badge badge-loss mono" style={{ fontSize: 10, padding: '2px 5px' }} title={tx.verificationNotes || 'Disputed'}>
+                            ⚠️ Disputed
+                          </span>
+                        ) : (
+                          <span className="badge badge-profit mono" style={{ fontSize: 10, padding: '2px 5px' }}>
+                            ✓ Verified
+                          </span>
+                        )}
+                      </td>
+                      <td className="text-muted text-xs truncate" style={{ maxWidth: 220 }}>
                         {tx.note || '—'}
                       </td>
                     </tr>

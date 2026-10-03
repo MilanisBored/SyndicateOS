@@ -155,14 +155,11 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
     } else {
       // Authenticated with email:
       // 1. Funds where user is manager/owner
-      // 2. Funds where user's email is linked in members table
+      // 2. Funds where user's email is linked in members table (as investor)
       accessibleFunds = allFunds.filter(f => {
         const ownerEmail = (f.owner_email || '').toLowerCase().trim();
         if (ownerEmail && ownerEmail === userEmail) return true;
         if (f.owner_id && userId && f.owner_id === userId) return true;
-        
-        // Milan claim on legacy unassigned fund
-        if (!f.owner_email && !f.owner_id && userEmail === 'milanchetry21@gmail.com') return true;
 
         // Check if user is linked by email as an investor in this fund's members
         const isLinkedMember = allMembers.some(m => 
@@ -175,21 +172,17 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
     }
 
     // Auto-create a clean, private fund profile for new users with no accessible funds
-    if (accessibleFunds.length === 0 && userEmail && userEmail !== 'milanchetry21@gmail.com') {
+    if (accessibleFunds.length === 0 && userEmail) {
       try {
-        const userName = currentUser?.user_metadata?.full_name || userEmail.split('@')[0] || 'Manager';
+        const userName = currentUser?.user_metadata?.full_name || userEmail.split('@')[0] || 'Fund Manager';
         const newFundPayload = {
           name: `${userName}'s Syndicate Pool`,
           manager_name: userName,
           initial_nav: 100.0,
-          currency: 'INR'
+          currency: 'INR',
+          owner_email: userEmail
         };
-
-        // Add owner columns if supported
-        if (allFunds.length > 0 && 'owner_email' in allFunds[0]) {
-          newFundPayload.owner_email = userEmail;
-          if (userId) newFundPayload.owner_id = userId;
-        }
+        if (userId) newFundPayload.owner_id = userId;
 
         const { data: createdFund } = await sb.from('funds').insert([newFundPayload]).select().single();
         if (createdFund) {
@@ -202,7 +195,8 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
             name: userName,
             relationship: 'self',
             role: 'Manager',
-            email: userEmail
+            email: userEmail,
+            notes: 'Primary fund manager'
           }]).select().single();
           if (createdMem) allMembers.push(createdMem);
         }
@@ -223,14 +217,20 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
 
     // Filter members strictly by active fund
     const rawMembers = allMembers.filter(m => !activeFundId || m.fund_id === activeFundId);
-    const members = rawMembers.map(m => ({
-      id: m.id,
-      name: m.name || 'Member',
-      relationship: (m.relationship || 'friend').toLowerCase(),
-      role: m.role || 'Investor',
-      email: m.email || '',
-      notes: m.notes || m.note || '',
-    }));
+    const members = rawMembers.map(m => {
+      const isMe = userEmail && m.email && m.email.toLowerCase().trim() === userEmail;
+      return {
+        id: m.id,
+        name: m.name || 'Member',
+        relationship: (m.relationship || 'friend').toLowerCase(),
+        role: m.role || 'Investor',
+        email: m.email || '',
+        notes: m.notes || m.note || '',
+        isMe: Boolean(isMe),
+      };
+    });
+
+    const currentMemberRecord = members.find(m => m.isMe) || null;
 
     // Filter transactions strictly by active fund
     const rawTx = allTx.filter(t => !activeFundId || t.fund_id === activeFundId);
@@ -259,6 +259,19 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
         if (foundByNote) memberNameVal = foundByNote.name;
       }
 
+      const isMyTx = currentMemberRecord ? (memberIdVal === currentMemberRecord.id) : false;
+
+      // Two-way verification status: from column or parsed from note fallback
+      let statusVal = t.status || 'verified';
+      if (!t.status && noteVal) {
+        if (noteVal.includes('[STATUS: pending]')) statusVal = 'pending';
+        else if (noteVal.includes('[STATUS: disputed]')) statusVal = 'disputed';
+        else if (noteVal.includes('[STATUS: verified]')) statusVal = 'verified';
+      }
+
+      const verifiedAtVal = t.verified_at || null;
+      const verificationNotesVal = t.verification_notes || null;
+
       return {
         id: t.id || `tx_${Math.random()}`,
         date: dateVal,
@@ -269,6 +282,10 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
         nav: navVal,
         units: unitsVal,
         note: noteVal,
+        status: statusVal,
+        verifiedAt: verifiedAtVal,
+        verificationNotes: verificationNotesVal,
+        isMyTx,
       };
     });
 
@@ -299,8 +316,7 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
       if (!userEmail) return true;
       if (i.user_email) return i.user_email.toLowerCase().trim() === userEmail;
       if (i.user_id && userId) return i.user_id === userId;
-      // Legacy unassigned incomes belong to Milan / local dev
-      return userEmail === 'milanchetry21@gmail.com' || userEmail === 'milan@localhost';
+      return false;
     });
 
     const monthlyIncome = filteredIncomes.map(i => ({
@@ -316,7 +332,7 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
       if (!userEmail) return true;
       if (a.user_email) return a.user_email.toLowerCase().trim() === userEmail;
       if (a.user_id && userId) return a.user_id === userId;
-      return userEmail === 'milanchetry21@gmail.com' || userEmail === 'milan@localhost';
+      return false;
     });
 
     const personalSoloAssets = filteredSoloAssets.map(a => ({
@@ -327,8 +343,30 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
       institution: a.institution || a.bank || '',
     }));
 
+    // Classify user's role in the currently selected fund
+    const isCurrentFundOwner = Boolean(
+      (userEmail && fund?.owner_email && fund.owner_email.toLowerCase().trim() === userEmail) ||
+      (userId && fund?.owner_id && fund.owner_id === userId) ||
+      (!fund?.owner_email && !fund?.owner_id) // unassigned default
+    );
+
+    const availableFunds = accessibleFunds.map(f => {
+      const isFundOwner = Boolean(
+        (userEmail && f.owner_email && f.owner_email.toLowerCase().trim() === userEmail) ||
+        (userId && f.owner_id && f.owner_id === userId)
+      );
+      return {
+        id: f.id,
+        name: f.name || 'Syndicate Pool',
+        managerName: f.manager_name || 'Manager',
+        isOwner: isFundOwner,
+        role: isFundOwner ? 'manager' : 'investor',
+        currency: f.currency || 'INR',
+      };
+    });
+
     return {
-      availableFunds: accessibleFunds.map(f => ({ id: f.id, name: f.name || 'Syndicate Pool', managerName: f.manager_name })),
+      availableFunds,
       fundInfo: fund ? {
         id: fund.id,
         name: fund.name || 'Syndicate Pool',
@@ -337,11 +375,17 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
         currency: fund.currency || 'INR',
         ownerEmail: fund.owner_email || null,
         ownerId: fund.owner_id || null,
+        isOwner: isCurrentFundOwner,
+        userRole: isCurrentFundOwner ? 'manager' : 'investor',
+        myMemberId: currentMemberRecord?.id || null,
       } : {
         name: 'Syndicate Pool',
         managerName: 'Manager',
         initialNav: 100.0,
-        currency: 'INR'
+        currency: 'INR',
+        isOwner: true,
+        userRole: 'manager',
+        myMemberId: null,
       },
       members,
       transactions,
@@ -402,20 +446,36 @@ export async function insertTransactionToSupabase(tx, fundId) {
   const numAmount = Number(tx.amount) || 0;
   const numNav = Number(tx.nav) || 100.0;
   const numUnits = Number(tx.units) || (numNav > 0 && normalizedType !== 'valuation_update' ? numAmount / numNav : 0);
+  const txStatus = tx.status || 'verified';
 
-  // Attempt insert with event_date first
+  // Construct note with embedded fallback tag if needed
+  let noteText = tx.note || null;
+  if (txStatus !== 'verified' && noteText && !noteText.includes('[STATUS:')) {
+    noteText = `${noteText} [STATUS: ${txStatus}]`;
+  } else if (txStatus !== 'verified' && !noteText) {
+    noteText = `[STATUS: ${txStatus}]`;
+  }
+
+  // Attempt insert with status & event_date first
   const payload1 = {
     type: normalizedType,
     amount: numAmount,
     nav: numNav,
     units: numUnits,
-    note: tx.note || null,
+    note: noteText,
     event_date: rawDate,
+    status: txStatus,
   };
   if (activeFundId) payload1.fund_id = activeFundId;
   if (activeMemberId && normalizedType !== 'valuation_update') payload1.member_id = activeMemberId;
 
   let res = await sb.from('transactions').insert([payload1]).select().single();
+
+  // If failed due to column status not existing, remove status and rely on note tag
+  if (res.error && (res.error.message?.includes('status') || res.error.code === '42703')) {
+    delete payload1.status;
+    res = await sb.from('transactions').insert([payload1]).select().single();
+  }
 
   // If failed due to column event_date not existing, fallback to date
   if (res.error && res.error.message && (res.error.message.includes('event_date') || res.error.code === '42703')) {
@@ -424,7 +484,7 @@ export async function insertTransactionToSupabase(tx, fundId) {
       amount: numAmount,
       nav: numNav,
       units: numUnits,
-      note: tx.note || null,
+      note: noteText,
       date: rawDate,
     };
     if (activeFundId) payload2.fund_id = activeFundId;
@@ -434,6 +494,36 @@ export async function insertTransactionToSupabase(tx, fundId) {
 
   if (res.error) {
     console.error('Error inserting transaction to Supabase:', res.error);
+    throw res.error;
+  }
+  return res.data;
+}
+
+export async function updateTransactionStatusInSupabase(txId, newStatus, verificationNotes = '', currentUser = null) {
+  const sb = getSupabase();
+  if (!sb || !txId) return null;
+
+  const now = new Date().toISOString();
+  let payload = {
+    status: newStatus,
+    verified_at: now,
+    verification_notes: verificationNotes || null,
+  };
+  if (currentUser?.id) payload.verified_by = currentUser.id;
+
+  let res = await sb.from('transactions').update(payload).eq('id', txId).select().single();
+
+  // If status column doesn't exist yet in Supabase, fallback to updating the note
+  if (res.error && (res.error.message?.includes('status') || res.error.code === '42703')) {
+    const { data: existingTx } = await sb.from('transactions').select('note').eq('id', txId).single();
+    let currentNote = existingTx?.note || '';
+    currentNote = currentNote.replace(/\[STATUS:\s*\w+\]/g, '').trim();
+    const updatedNote = `${currentNote} [STATUS: ${newStatus}]${verificationNotes ? ` (${verificationNotes})` : ''}`.trim();
+    res = await sb.from('transactions').update({ note: updatedNote }).eq('id', txId).select().single();
+  }
+
+  if (res.error) {
+    console.error('Error updating transaction status:', res.error);
     throw res.error;
   }
   return res.data;
@@ -467,6 +557,13 @@ export async function insertMemberToSupabase(member, fundId) {
   const { data, error } = await sb.from('members').insert([payload]).select().single();
   if (error) throw error;
   return data;
+}
+
+export async function deleteMemberFromSupabase(memberId) {
+  const sb = getSupabase();
+  if (!sb || !memberId) return;
+  const { error } = await sb.from('members').delete().eq('id', memberId);
+  if (error) throw error;
 }
 
 export async function upsertHoldingToSupabase(holding, fundId) {
@@ -616,6 +713,42 @@ export async function deleteSoloAssetFromSupabase(id) {
   const sb = getSupabase();
   if (!sb) return;
   await sb.from('personal_solo_assets').delete().eq('id', id);
+}
+
+export async function createFundInSupabase({ name, managerName, currency = 'INR', initialNav = 100.0 }, currentUser = null) {
+  const sb = getSupabase();
+  if (!sb) return null;
+
+  const payload = {
+    name: name?.trim() || 'My Syndicate Fund',
+    manager_name: managerName?.trim() || currentUser?.user_metadata?.full_name || 'Fund Manager',
+    initial_nav: Number(initialNav) || 100.0,
+    currency: currency || 'INR',
+  };
+
+  if (currentUser?.email) payload.owner_email = currentUser.email.toLowerCase().trim();
+  if (currentUser?.id) payload.owner_id = currentUser.id;
+
+  const { data: newFund, error } = await sb.from('funds').insert([payload]).select().single();
+  if (error) throw error;
+
+  // Add the manager as a self member in the new fund
+  if (newFund) {
+    try {
+      await sb.from('members').insert([{
+        fund_id: newFund.id,
+        name: payload.manager_name,
+        relationship: 'self',
+        role: 'Manager',
+        email: currentUser?.email || null,
+        notes: 'Primary fund manager'
+      }]);
+    } catch (e) {
+      console.warn('Could not auto-add self member to new fund:', e);
+    }
+  }
+
+  return newFund;
 }
 
 export async function updateFundInSupabase(fundId, info) {

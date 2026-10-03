@@ -9,17 +9,36 @@ export default function DashboardView({
   members, 
   holdings, 
   personalFinances,
+  currentUser,
+  perspective = 'manager',
   onOpenTransactionModal,
+  onConfirmTransaction,
   onSelectMember 
 }) {
   const [hoveredPoint, setHoveredPoint] = useState(null);
 
+  const isInvestor = perspective === 'investor' || fundInfo?.userRole === 'investor';
+  const userEmail = (currentUser?.email || '').toLowerCase().trim();
+
+  // Resolve current member profile
+  const currentMember = fundMetrics.members.find(m => 
+    m.isMe || 
+    (userEmail && m.email && m.email.toLowerCase().trim() === userEmail) ||
+    m.id === fundInfo?.myMemberId
+  ) || fundMetrics.members[0];
+
+  const [txFilter, setTxFilter] = useState(isInvestor ? 'my' : 'all');
+
+  // Pending transfers awaiting this investor's confirmation
+  const pendingInvestorTx = currentMember ? transactions.filter(t => 
+    (t.memberId === currentMember.id || t.isMyTx) && t.status === 'pending'
+  ) : [];
+
   // Solo Assets Total
-  const soloAssetsTotal = personalFinances.personalSoloAssets.reduce(
+  const soloAssetsTotal = personalFinances?.personalSoloAssets?.reduce(
     (acc, a) => acc + (Number(a.value) || 0), 
     0
-  );
-  const totalCombinedNetWorth = fundMetrics.myStakeValue + soloAssetsTotal;
+  ) || 0;
 
   // Chart coordinates
   const timeline = fundMetrics.timeline || [];
@@ -42,49 +61,176 @@ export default function DashboardView({
     ? points.reduce((acc, p, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`, '')
     : '';
 
-  const recentTx = [...transactions]
-    .sort((a, b) => new Date(b.date) - new Date(a.date))
-    .slice(0, 6);
+  const managerName = fundInfo?.managerName || 'Fund Manager';
 
   return (
     <div>
-      {/* Compact Metric Strip */}
-      <div className="metric-strip">
-        <div className="metric-cell">
-          <span className="metric-label">Syndicate Pool AUM</span>
-          <span className="metric-val mono">{formatCurrency(fundMetrics.totalFundAUM, currency)}</span>
-          <div className="metric-delta">
-            <span className={fundMetrics.totalFundNetProfit >= 0 ? 'text-profit' : 'text-loss'}>
-              {fundMetrics.totalFundNetProfit >= 0 ? '+' : ''}{formatCurrency(fundMetrics.totalFundNetProfit, currency, { decimals: 0 })} ({formatNumber(fundMetrics.totalFundRoiPct, 1)}%)
+      {/* Investor Portal Header Banner */}
+      {isInvestor && currentMember && (
+        <div 
+          className="card p-3 mb-3 flex justify-between items-center"
+          style={{ background: 'rgba(99, 102, 241, 0.08)', border: '1px solid rgba(99, 102, 241, 0.25)' }}
+        >
+          <div className="flex items-center gap-3">
+            <span className="badge badge-profit mono">📈 Investor Portal</span>
+            <div>
+              <span className="font-semibold block text-sm">
+                {currentMember.name} • Syndicate Managed by {managerName}
+              </span>
+              <span className="text-xs text-muted">
+                Your capital is unitized at current NAV ({formatCurrency(fundMetrics.currentNav, currency)}). Deposits & withdrawals reflect live.
+              </span>
+            </div>
+          </div>
+          <button 
+            type="button" 
+            className="btn btn-primary btn-sm"
+            onClick={() => onSelectMember(currentMember)}
+          >
+            📄 View Full Statement
+          </button>
+        </div>
+      )}
+
+      {/* Two-Way Transfer Verification Notification for Investor */}
+      {pendingInvestorTx.length > 0 && (
+        <div 
+          className="card p-3 mb-3"
+          style={{ background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.35)' }}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <span className="badge badge-warning mono">🔔 Action Required</span>
+              <span className="font-semibold text-sm">
+                {pendingInvestorTx.length} Pending Transfer{pendingInvestorTx.length > 1 ? 's' : ''} Awaiting Your Confirmation
+              </span>
+            </div>
+            <span className="text-xs text-muted">
+              Confirming guarantees an audited match with your bank/UPI transfer.
             </span>
           </div>
-        </div>
 
-        <div className="metric-cell">
-          <span className="metric-label">Unit NAV Price</span>
-          <span className="metric-val mono">{formatCurrency(fundMetrics.currentNav, currency, { decimals: 2 })}</span>
-          <div className="metric-delta text-muted">
-            <span>{formatNumber(fundMetrics.totalUnits, 1)} total units</span>
+          <div className="flex flex-col gap-2">
+            {pendingInvestorTx.map(tx => (
+              <div 
+                key={tx.id} 
+                className="card p-2 flex justify-between items-center text-xs"
+                style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border-subtle)' }}
+              >
+                <div>
+                  <span className="font-semibold block">
+                    {tx.type === 'deposit' ? 'Deposit' : 'Withdrawal'} of {formatCurrency(tx.amount, currency)} ({formatNumber(tx.units, 2)} units @ NAV {formatCurrency(tx.nav, currency)}) on {tx.date}
+                  </span>
+                  <span className="text-muted block text-xs">
+                    Memo: "{tx.note || 'Transfer'}"
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    style={{ fontSize: 11, padding: '3px 9px' }}
+                    onClick={() => onConfirmTransaction && onConfirmTransaction(tx.id, 'verified', 'Confirmed by investor')}
+                  >
+                    ✓ Confirm Deposit
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    style={{ fontSize: 11, padding: '3px 9px', color: 'var(--loss)' }}
+                    onClick={() => {
+                      const reason = prompt('Please describe the discrepancy (e.g. transferred different amount, incorrect date):');
+                      if (reason !== null) {
+                        onConfirmTransaction && onConfirmTransaction(tx.id, 'disputed', reason);
+                      }
+                    }}
+                  >
+                    ⚠️ Report Issue
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
+      )}
 
-        <div className="metric-cell">
-          <span className="metric-label">My Equity (Milan)</span>
-          <span className="metric-val mono">{formatCurrency(fundMetrics.myStakeValue, currency)}</span>
-          <div className="metric-delta text-muted">
-            <span>{formatNumber((fundMetrics.myStakeValue / (fundMetrics.totalFundAUM || 1)) * 100, 1)}% ownership</span>
-          </div>
-        </div>
+      {/* Adaptive Metric Strip */}
+      <div className="metric-strip">
+        {isInvestor && currentMember ? (
+          <>
+            <div className="metric-cell">
+              <span className="metric-label">My Portfolio Equity</span>
+              <span className="metric-val mono">{formatCurrency(currentMember.currentValue, currency)}</span>
+              <div className="metric-delta">
+                <span className={currentMember.totalProfit >= 0 ? 'text-profit' : 'text-loss'}>
+                  {currentMember.totalProfit >= 0 ? '+' : ''}{formatCurrency(currentMember.totalProfit, currency, { decimals: 0 })} ({formatNumber(currentMember.roiPercentage, 1)}%)
+                </span>
+              </div>
+            </div>
 
-        <div className="metric-cell">
-          <span className="metric-label">Partner & Friends</span>
-          <span className="metric-val mono">
-            {formatCurrency(fundMetrics.partnerStakeValue + fundMetrics.friendsStakeValue, currency)}
-          </span>
-          <div className="metric-delta text-muted">
-            <span>{fundMetrics.members.length - 1} external participants</span>
-          </div>
-        </div>
+            <div className="metric-cell">
+              <span className="metric-label">My Total Invested</span>
+              <span className="metric-val mono">{formatCurrency(currentMember.totalDeposited, currency)}</span>
+              <div className="metric-delta text-muted">
+                <span>Withdrawn: {formatCurrency(currentMember.totalWithdrawn, currency, { decimals: 0 })}</span>
+              </div>
+            </div>
+
+            <div className="metric-cell">
+              <span className="metric-label">My Units & Share</span>
+              <span className="metric-val mono">{formatNumber(currentMember.units, 2)} units</span>
+              <div className="metric-delta text-muted">
+                <span>{formatNumber(currentMember.ownershipPct, 1)}% of total pool</span>
+              </div>
+            </div>
+
+            <div className="metric-cell">
+              <span className="metric-label">Syndicate Pool AUM</span>
+              <span className="metric-val mono">{formatCurrency(fundMetrics.totalFundAUM, currency)}</span>
+              <div className="metric-delta text-muted">
+                <span>Current NAV: {formatCurrency(fundMetrics.currentNav, currency, { decimals: 2 })}</span>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="metric-cell">
+              <span className="metric-label">Syndicate Pool AUM</span>
+              <span className="metric-val mono">{formatCurrency(fundMetrics.totalFundAUM, currency)}</span>
+              <div className="metric-delta">
+                <span className={fundMetrics.totalFundNetProfit >= 0 ? 'text-profit' : 'text-loss'}>
+                  {fundMetrics.totalFundNetProfit >= 0 ? '+' : ''}{formatCurrency(fundMetrics.totalFundNetProfit, currency, { decimals: 0 })} ({formatNumber(fundMetrics.totalFundRoiPct, 1)}%)
+                </span>
+              </div>
+            </div>
+
+            <div className="metric-cell">
+              <span className="metric-label">Unit NAV Price</span>
+              <span className="metric-val mono">{formatCurrency(fundMetrics.currentNav, currency, { decimals: 2 })}</span>
+              <div className="metric-delta text-muted">
+                <span>{formatNumber(fundMetrics.totalUnits, 1)} total units</span>
+              </div>
+            </div>
+
+            <div className="metric-cell">
+              <span className="metric-label">Manager Equity ({managerName})</span>
+              <span className="metric-val mono">{formatCurrency(fundMetrics.myStakeValue, currency)}</span>
+              <div className="metric-delta text-muted">
+                <span>{formatNumber((fundMetrics.myStakeValue / (fundMetrics.totalFundAUM || 1)) * 100, 1)}% ownership</span>
+              </div>
+            </div>
+
+            <div className="metric-cell">
+              <span className="metric-label">Investors Pool Capital</span>
+              <span className="metric-val mono">
+                {formatCurrency(fundMetrics.partnerStakeValue + fundMetrics.friendsStakeValue, currency)}
+              </span>
+              <div className="metric-delta text-muted">
+                <span>{Math.max(0, fundMetrics.members.length - 1)} external investors</span>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Main Grid: Chart & Ownership */}
@@ -185,38 +331,50 @@ export default function DashboardView({
         <div className="card chart-box">
           <div className="section-head">
             <span className="section-title">Participants ({fundMetrics.members.length})</span>
-            <button 
-              type="button" 
-              className="btn btn-secondary btn-sm"
-              onClick={() => onOpenTransactionModal()}
-            >
-              + Entry
-            </button>
+            {!isInvestor && (
+              <button 
+                type="button" 
+                className="btn btn-secondary btn-sm"
+                onClick={() => onOpenTransactionModal()}
+              >
+                + Entry
+              </button>
+            )}
           </div>
 
           <div className="compact-list">
-            {fundMetrics.members.map((m) => (
-              <div 
-                key={m.id} 
-                className="compact-list-row"
-                style={{ cursor: 'pointer' }}
-                onClick={() => onSelectMember(m)}
-                title="View Statement"
-              >
-                <div>
-                  <div className="font-medium">{m.name}</div>
-                  <div className="text-xs text-muted mono">
-                    {formatNumber(m.units, 2)} units &bull; {formatNumber(m.ownershipPct, 1)}%
+            {fundMetrics.members.map((m) => {
+              const isThisMe = m.id === currentMember?.id || m.isMe;
+              return (
+                <div 
+                  key={m.id} 
+                  className="compact-list-row"
+                  style={{ cursor: 'pointer', background: isThisMe ? 'rgba(99, 102, 241, 0.06)' : undefined }}
+                  onClick={() => onSelectMember(m)}
+                  title="View Statement"
+                >
+                  <div>
+                    <div className="font-medium flex items-center gap-1">
+                      {m.name}
+                      {isThisMe && (
+                        <span className="badge badge-profit mono" style={{ fontSize: 9, padding: '1px 5px' }}>
+                          You
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-muted mono">
+                      {formatNumber(m.units, 2)} units &bull; {formatNumber(m.ownershipPct, 1)}%
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="mono font-semibold">{formatCurrency(m.currentValue, currency)}</div>
+                    <div className={`text-xs mono ${m.totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
+                      {m.totalProfit >= 0 ? '+' : ''}{formatNumber(m.roiPercentage, 1)}%
+                    </div>
                   </div>
                 </div>
-                <div className="text-right">
-                  <div className="mono font-semibold">{formatCurrency(m.currentValue, currency)}</div>
-                  <div className={`text-xs mono ${m.totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
-                    {m.totalProfit >= 0 ? '+' : ''}{formatNumber(m.roiPercentage, 1)}%
-                  </div>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
@@ -225,6 +383,27 @@ export default function DashboardView({
       <div className="card p-4">
         <div className="section-head">
           <span className="section-title">Recent Transactions</span>
+
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className={`btn btn-sm ${txFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+              style={{ fontSize: 11, padding: '3px 9px' }}
+              onClick={() => setTxFilter('all')}
+            >
+              All Pool Activity
+            </button>
+            {currentMember && (
+              <button
+                type="button"
+                className={`btn btn-sm ${txFilter === 'my' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ fontSize: 11, padding: '3px 9px' }}
+                onClick={() => setTxFilter('my')}
+              >
+                My Investments Only
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="table-responsive">
@@ -237,47 +416,102 @@ export default function DashboardView({
                 <th>Amount</th>
                 <th>NAV</th>
                 <th>Units Impact</th>
+                <th>Status</th>
                 <th>Note</th>
               </tr>
             </thead>
             <tbody>
-              {recentTx.map((tx) => {
-                const member = members.find((m) => 
-                  m.id === tx.memberId ||
-                  (tx.memberId && String(m.id).toLowerCase() === String(tx.memberId).toLowerCase()) ||
-                  (tx.memberName && m.name.toLowerCase() === tx.memberName.toLowerCase()) ||
-                  (tx.note && tx.note.toLowerCase().includes(m.name.toLowerCase()))
-                );
-                const isDeposit = tx.type === 'deposit';
-                const isWithdrawal = tx.type === 'withdrawal';
-                const isValuation = tx.type === 'valuation_update';
+              {[...transactions]
+                .filter(tx => {
+                  if (txFilter === 'my' && currentMember) {
+                    return tx.memberId === currentMember.id || 
+                           (tx.memberName && tx.memberName.toLowerCase() === currentMember.name.toLowerCase()) ||
+                           (tx.note && tx.note.toLowerCase().includes(currentMember.name.toLowerCase())) ||
+                           tx.isMyTx;
+                  }
+                  return true;
+                })
+                .sort((a, b) => new Date(b.date) - new Date(a.date))
+                .slice(0, 8)
+                .map((tx) => {
+                  const member = members.find((m) => 
+                    m.id === tx.memberId ||
+                    (tx.memberId && String(m.id).toLowerCase() === String(tx.memberId).toLowerCase()) ||
+                    (tx.memberName && m.name.toLowerCase() === tx.memberName.toLowerCase()) ||
+                    (tx.note && tx.note.toLowerCase().includes(m.name.toLowerCase()))
+                  );
+                  const isDeposit = tx.type === 'deposit';
+                  const isWithdrawal = tx.type === 'withdrawal';
+                  const isValuation = tx.type === 'valuation_update';
+                  const isThisMyTx = currentMember && (
+                    tx.memberId === currentMember.id || 
+                    tx.isMyTx || 
+                    (member && member.id === currentMember.id)
+                  );
+                  const txStatus = tx.status || 'verified';
 
-                return (
-                  <tr key={tx.id}>
-                    <td className="mono text-muted">{tx.date}</td>
-                    <td>{member ? member.name : isValuation ? 'Fund Revaluation' : (tx.memberName || 'Investor')}</td>
-                    <td>
-                      <span className={`badge ${
-                        isDeposit ? 'badge-profit' : isWithdrawal ? 'badge-loss' : 'badge-neutral'
-                      }`}>
-                        {isDeposit ? 'Deposit' : isWithdrawal ? 'Withdrawal' : 'Valuation'}
-                      </span>
-                    </td>
-                    <td className="mono font-semibold">
-                      <span className={isDeposit ? 'text-profit' : isWithdrawal ? 'text-loss' : ''}>
-                        {isDeposit ? '+' : isWithdrawal ? '-' : ''}{formatCurrency(tx.amount, currency)}
-                      </span>
-                    </td>
-                    <td className="mono text-muted">{formatCurrency(tx.nav, currency, { decimals: 2 })}</td>
-                    <td className="mono text-muted">
-                      {isValuation ? '—' : `${formatNumber(tx.units, 2)} u`}
-                    </td>
-                    <td className="text-muted text-xs truncate" style={{ maxWidth: 220 }}>
-                      {tx.note || '—'}
-                    </td>
-                  </tr>
-                );
-              })}
+                  return (
+                    <tr key={tx.id} style={isThisMyTx ? { background: 'rgba(99, 102, 241, 0.05)' } : {}}>
+                      <td className="mono text-muted">{tx.date}</td>
+                      <td>
+                        <span className="font-medium">
+                          {member ? member.name : isValuation ? 'Fund Revaluation' : (tx.memberName || 'Investor')}
+                        </span>
+                        {isThisMyTx && (
+                          <span className="badge badge-profit mono ml-2" style={{ fontSize: 9, padding: '1px 4px' }}>
+                            You
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        <span className={`badge ${
+                          isDeposit ? 'badge-profit' : isWithdrawal ? 'badge-loss' : 'badge-neutral'
+                        }`}>
+                          {isDeposit ? 'Deposit' : isWithdrawal ? 'Withdrawal' : 'Valuation'}
+                        </span>
+                      </td>
+                      <td className="mono font-semibold">
+                        <span className={isDeposit ? 'text-profit' : isWithdrawal ? 'text-loss' : ''}>
+                          {isDeposit ? '+' : isWithdrawal ? '-' : ''}{formatCurrency(tx.amount, currency)}
+                        </span>
+                      </td>
+                      <td className="mono text-muted">{formatCurrency(tx.nav, currency, { decimals: 2 })}</td>
+                      <td className="mono text-muted">
+                        {isValuation ? '—' : `${formatNumber(tx.units, 2)} u`}
+                      </td>
+                      <td>
+                        {txStatus === 'pending' ? (
+                          <div className="flex items-center gap-1">
+                            <span className="badge badge-warning mono" style={{ fontSize: 10, padding: '2px 5px' }}>
+                              ⏳ Pending
+                            </span>
+                            {isThisMyTx && onConfirmTransaction && (
+                              <button
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                style={{ fontSize: 9, padding: '1px 5px', lineHeight: 1.2 }}
+                                onClick={() => onConfirmTransaction(tx.id, 'verified', 'Confirmed by investor')}
+                              >
+                                Confirm
+                              </button>
+                            )}
+                          </div>
+                        ) : txStatus === 'disputed' ? (
+                          <span className="badge badge-loss mono" style={{ fontSize: 10, padding: '2px 5px' }} title={tx.verificationNotes || 'Disputed'}>
+                            ⚠️ Disputed
+                          </span>
+                        ) : (
+                          <span className="badge badge-profit mono" style={{ fontSize: 10, padding: '2px 5px' }}>
+                            ✓ Verified
+                          </span>
+                        )}
+                      </td>
+                      <td className="text-muted text-xs truncate" style={{ maxWidth: 200 }}>
+                        {tx.note || '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
             </tbody>
           </table>
         </div>

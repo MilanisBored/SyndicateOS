@@ -54,9 +54,10 @@ export default function MemberModal({ onAddMember, onClose }) {
                 onChange={(e) => setRelationship(e.target.value)}
                 className="form-select"
               >
-                <option value="partner">Partner / Girlfriend</option>
+                <option value="investor">External Investor</option>
                 <option value="friend">Friend / Colleague</option>
-                <option value="family">Family</option>
+                <option value="partner">Partner / Spouse</option>
+                <option value="family">Family Member</option>
                 <option value="self">Self (Manager)</option>
               </select>
             </div>
@@ -65,7 +66,7 @@ export default function MemberModal({ onAddMember, onClose }) {
               <label className="form-label">Role</label>
               <input
                 type="text"
-                placeholder="e.g. Partner, Investor"
+                placeholder="e.g. Investor, LP, Partner"
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
                 className="form-input"
@@ -74,21 +75,26 @@ export default function MemberModal({ onAddMember, onClose }) {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Contact / Email (Optional)</label>
+            <label className="form-label">
+              Investor Login Email <span className="text-muted text-xs font-normal">(Links account for shared pool view)</span>
+            </label>
             <input
-              type="text"
-              placeholder="email@example.com"
+              type="email"
+              placeholder="investor@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="form-input"
             />
+            <span className="text-xs text-muted block mt-1">
+              When this person logs in with this email, this syndicate pool, their deposits, and their equity will automatically show on their screen.
+            </span>
           </div>
 
           <div className="form-group">
-            <label className="form-label">Notes</label>
+            <label className="form-label">Notes / Terms</label>
             <input
               type="text"
-              placeholder="Optional notes or goals"
+              placeholder="e.g. Profit split, lock-in period, goals"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               className="form-input"

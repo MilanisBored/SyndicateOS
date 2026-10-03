@@ -12,8 +12,11 @@ export default function HoldingsView({
   onDeleteHolding,
   fundMetrics, 
   currency, 
+  fundInfo,
+  perspective = 'manager',
   onSyncValuationToNAV 
 }) {
+  const isInvestor = perspective === 'investor' || fundInfo?.userRole === 'investor';
   const [isEditing, setIsEditing] = useState(false);
   const [editingAsset, setEditingAsset] = useState(null);
 
@@ -327,25 +330,33 @@ export default function HoldingsView({
         </div>
 
         <div className="metric-cell flex items-center justify-end gap-2">
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={() => {
-              setBatchSummary(null);
-              setIsSyncModalOpen(true);
-            }}
-            disabled={isBatchSyncing || holdings.length === 0}
-            title="Auto-fetch live NSE/BSE stock and AMFI mutual fund prices in 1 batch"
-          >
-            {isBatchSyncing ? '⚡ Syncing...' : '⚡ Sync Live Prices'}
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            onClick={handleOpenAdd}
-          >
-            + Add Asset / FD
-          </button>
+          {!isInvestor ? (
+            <>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => {
+                  setBatchSummary(null);
+                  setIsSyncModalOpen(true);
+                }}
+                disabled={isBatchSyncing || holdings.length === 0}
+                title="Auto-fetch live NSE/BSE stock and AMFI mutual fund prices in 1 batch"
+              >
+                {isBatchSyncing ? '⚡ Syncing...' : '⚡ Sync Live Prices'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={handleOpenAdd}
+              >
+                + Add Asset / FD
+              </button>
+            </>
+          ) : (
+            <span className="badge badge-neutral mono text-xs">
+              Portfolio Backing • Managed by {fundInfo?.managerName || 'Fund Manager'}
+            </span>
+          )}
         </div>
       </div>
 
@@ -517,60 +528,66 @@ export default function HoldingsView({
                       </td>
                       <td className="mono text-muted">{formatNumber(weight, 1)}%</td>
                       <td>
-                        <div className="flex gap-1">
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            style={{ padding: '2px 6px', fontSize: 11 }}
-                            onClick={async () => {
-                              const amount = prompt(`Enter SIP Amount to add to ${ast.name}:`);
-                              if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) return;
-                              const addAmt = Number(amount);
+                        {!isInvestor ? (
+                          <div className="flex gap-1">
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              style={{ padding: '2px 6px', fontSize: 11 }}
+                              onClick={async () => {
+                                const amount = prompt(`Enter SIP Amount to add to ${ast.name}:`);
+                                if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) return;
+                                const addAmt = Number(amount);
 
-                              let addUnits = 0;
-                              const unitsStr = prompt(`(Optional) Enter Units bought with this SIP (or leave blank to auto-calculate via live NAV):`);
-                              if (unitsStr && !isNaN(Number(unitsStr)) && Number(unitsStr) > 0) {
-                                addUnits = Number(unitsStr);
-                              } else {
-                                try {
-                                  const quote = await fetchMutualFundNav(ast.ticker || ast.name);
-                                  if (quote?.nav) {
-                                    addUnits = Math.round((addAmt / quote.nav) * 1000) / 1000;
-                                  }
-                                } catch (e) {}
-                              }
+                                let addUnits = 0;
+                                const unitsStr = prompt(`(Optional) Enter Units bought with this SIP (or leave blank to auto-calculate via live NAV):`);
+                                if (unitsStr && !isNaN(Number(unitsStr)) && Number(unitsStr) > 0) {
+                                  addUnits = Number(unitsStr);
+                                } else {
+                                  try {
+                                    const quote = await fetchMutualFundNav(ast.ticker || ast.name);
+                                    if (quote?.nav) {
+                                      addUnits = Math.round((addAmt / quote.nav) * 1000) / 1000;
+                                    }
+                                  } catch (e) {}
+                                }
 
-                              const currentUnits = Number(ast.units) || 0;
-                              const updatedUnits = currentUnits + addUnits;
+                                const currentUnits = Number(ast.units) || 0;
+                                const updatedUnits = currentUnits + addUnits;
 
-                              onSaveHolding({
-                                ...ast,
-                                investedAmount: ast.investedAmount + addAmt,
-                                currentValue: ast.currentValue + addAmt,
-                                units: updatedUnits > 0 ? updatedUnits : null,
-                              });
-                            }}
-                            title="Add monthly/weekly SIP purchase amount"
-                          >
-                            + SIP
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            style={{ padding: '2px 6px', fontSize: 11 }}
-                            onClick={() => handleOpenEdit(ast)}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            style={{ padding: '2px 6px', fontSize: 11 }}
-                            onClick={() => handleDelete(ast.id)}
-                          >
-                            ✕
-                          </button>
-                        </div>
+                                onSaveHolding({
+                                  ...ast,
+                                  investedAmount: ast.investedAmount + addAmt,
+                                  currentValue: ast.currentValue + addAmt,
+                                  units: updatedUnits > 0 ? updatedUnits : null,
+                                });
+                              }}
+                              title="Add monthly/weekly SIP purchase amount"
+                            >
+                              + SIP
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              style={{ padding: '2px 6px', fontSize: 11 }}
+                              onClick={() => handleOpenEdit(ast)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              style={{ padding: '2px 6px', fontSize: 11 }}
+                              onClick={() => handleDelete(ast.id)}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="badge badge-neutral mono" style={{ fontSize: 10, padding: '2px 6px' }}>
+                            ✓ Backing
+                          </span>
+                        )}
                       </td>
                     </tr>
                   );

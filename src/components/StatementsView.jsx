@@ -5,9 +5,20 @@ export default function StatementsView({
   fundMetrics, 
   fundInfo, 
   currency, 
+  currentUser,
+  perspective = 'manager',
   onSelectMember 
 }) {
   const [copiedId, setCopiedId] = useState(null);
+
+  const isInvestor = perspective === 'investor' || fundInfo?.userRole === 'investor';
+  const userEmail = (currentUser?.email || '').toLowerCase().trim();
+
+  const currentMember = fundMetrics.members.find(m => 
+    m.isMe || 
+    (userEmail && m.email && m.email.toLowerCase().trim() === userEmail) ||
+    m.id === fundInfo?.myMemberId
+  ) || fundMetrics.members[0];
 
   const handleCopySummary = (member) => {
     const text = generateShareableSummary(member, fundInfo, fundMetrics.currentNav);
@@ -22,10 +33,55 @@ export default function StatementsView({
         <div>
           <span className="section-title">Investor Statements</span>
           <span className="text-xs text-muted block">
-            Generate and copy account summaries for each syndicate member.
+            {isInvestor 
+              ? 'Your personalized account statement and unitized capital records.' 
+              : 'Generate, export, and copy account summaries for each syndicate member.'}
           </span>
         </div>
       </div>
+
+      {/* Featured Card for Logged-In Investor */}
+      {isInvestor && currentMember && (
+        <div 
+          className="card p-4 mb-4 flex justify-between items-center"
+          style={{ background: 'rgba(99, 102, 241, 0.08)', border: '1px solid rgba(99, 102, 241, 0.3)' }}
+        >
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="badge badge-profit mono">Personal Statement</span>
+              <span className="font-semibold text-base">{currentMember.name}</span>
+            </div>
+            <div className="text-xs text-muted mb-2">
+              Units: <strong className="mono text-primary">{formatNumber(currentMember.units, 2)}</strong> &bull; 
+              Ownership: <strong className="mono text-primary">{formatNumber(currentMember.ownershipPct, 1)}%</strong> &bull; 
+              Invested: <strong className="mono">{formatCurrency(currentMember.totalDeposited, currency)}</strong> &bull; 
+              Current Equity: <strong className="mono text-primary">{formatCurrency(currentMember.currentValue, currency)}</strong>
+            </div>
+            <span className="text-xs text-muted block">
+              Net Gain: <strong className={`mono ${currentMember.totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
+                {currentMember.totalProfit >= 0 ? '+' : ''}{formatCurrency(currentMember.totalProfit, currency)} ({formatNumber(currentMember.roiPercentage, 1)}%)
+              </strong>
+            </span>
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => handleCopySummary(currentMember)}
+            >
+              {copiedId === currentMember.id ? '✓ Copied' : '📋 Copy Summary'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => onSelectMember(currentMember)}
+            >
+              📄 Open Full Statement
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="table-responsive card p-4">
         <table className="dense-table">

@@ -10,6 +10,10 @@ export default function Navbar({
   theme, 
   toggleTheme, 
   onOpenTransactionModal,
+  onOpenStatementModal,
+  onCreateFund,
+  perspective = 'manager',
+  onTogglePerspective,
   isCloudConnected,
   isLoadingCloud,
   onRefreshCloud,
@@ -34,6 +38,12 @@ export default function Navbar({
     ? 'Guest' 
     : (currentUser?.user_metadata?.full_name || currentUser?.email?.split('@')[0] || 'User');
 
+  const isInvestorView = perspective === 'investor' || fundInfo?.userRole === 'investor';
+  const isActualManager = fundInfo?.isOwner || fundInfo?.userRole === 'manager';
+
+  const managedFunds = availableFunds.filter(f => f.role === 'manager' || f.isOwner);
+  const investedFunds = availableFunds.filter(f => f.role === 'investor' && !f.isOwner);
+
   return (
     <header className="topbar">
       {/* Upper Bar: Brand & Action Controls */}
@@ -46,20 +56,67 @@ export default function Navbar({
               <span className="brand-name">{brandTitle}</span>
             </div>
 
-            {availableFunds && availableFunds.length > 1 && (
+            {/* Role Badge */}
+            <span 
+              className={`badge mono font-semibold ${isInvestorView ? 'badge-profit' : 'badge-neutral'}`}
+              style={{ fontSize: 10, padding: '2px 7px' }}
+              title={isInvestorView ? 'Viewing as Investor in this pool' : 'Viewing as Fund Manager'}
+            >
+              {isInvestorView ? '📈 Investor' : '👔 Manager'}
+            </span>
+
+            {/* Fund Switcher Dropdown */}
+            {(availableFunds.length > 0 || onCreateFund) && (
               <select
                 value={fundInfo?.id || ''}
-                onChange={(e) => onSwitchFund && onSwitchFund(e.target.value)}
+                onChange={(e) => {
+                  if (e.target.value === '__new_pool__') {
+                    onCreateFund && onCreateFund();
+                  } else if (onSwitchFund) {
+                    onSwitchFund(e.target.value);
+                  }
+                }}
                 className="currency-select-minimal mono"
                 title="Switch Syndicate Pool"
-                style={{ fontSize: '11px', maxWidth: '160px' }}
+                style={{ fontSize: '11px', maxWidth: '170px' }}
               >
-                {availableFunds.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.name || 'Syndicate Pool'}
-                  </option>
-                ))}
+                {managedFunds.length > 0 && (
+                  <optgroup label="👔 Funds You Manage">
+                    {managedFunds.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.name || 'Syndicate Pool'}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {investedFunds.length > 0 && (
+                  <optgroup label="📈 Syndicates You're In">
+                    {investedFunds.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.name || 'Syndicate'} ({f.managerName})
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {onCreateFund && (
+                  <optgroup label="Actions">
+                    <option value="__new_pool__">+ New Syndicate Pool...</option>
+                  </optgroup>
+                )}
               </select>
+            )}
+
+            {/* Manager Perspective Preview Toggle */}
+            {isActualManager && onTogglePerspective && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{ fontSize: '10px', padding: '2px 7px', borderColor: 'var(--border-subtle)' }}
+                onClick={onTogglePerspective}
+                title="Toggle between Manager view and Investor perspective preview"
+              >
+                {perspective === 'manager' ? '👁️ Preview Investor' : '👔 Manager Mode'}
+              </button>
             )}
           </div>
 
@@ -111,14 +168,25 @@ export default function Navbar({
               {theme === 'dark' ? '☀️' : '🌙'}
             </button>
 
-            {/* Primary Action Button */}
-            <button 
-              type="button" 
-              className="btn btn-primary btn-sm topbar-cta-btn"
-              onClick={onOpenTransactionModal}
-            >
-              + Transaction
-            </button>
+            {/* Adaptive Action Button */}
+            {isInvestorView ? (
+              <button 
+                type="button" 
+                className="btn btn-primary btn-sm topbar-cta-btn"
+                onClick={onOpenStatementModal}
+                title="View your investor statement of account"
+              >
+                📄 My Statement
+              </button>
+            ) : (
+              <button 
+                type="button" 
+                className="btn btn-primary btn-sm topbar-cta-btn"
+                onClick={onOpenTransactionModal}
+              >
+                + Transaction
+              </button>
+            )}
 
             {/* User Session & Lock */}
             {onSignOut && (

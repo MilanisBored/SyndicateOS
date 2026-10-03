@@ -17,6 +17,10 @@ export default function TransactionModal({
   const [amount, setAmount] = useState(initialData.amount || '');
   const [date, setDate] = useState(initialData.date || new Date().toISOString().split('T')[0]);
   const [note, setNote] = useState(initialData.note || '');
+  const [status, setStatus] = useState(() => {
+    if (initialData.status) return initialData.status;
+    return initialData.type === 'valuation_update' ? 'verified' : 'pending';
+  });
 
   // Keep memberId in sync if members list loads/changes
   React.useEffect(() => {
@@ -44,6 +48,9 @@ export default function TransactionModal({
     if (validationError) return;
 
     const resolvedMember = type === 'valuation_update' ? null : (selectedMember || members[0]);
+    const finalStatus = (type === 'valuation_update' || resolvedMember?.relationship === 'self') 
+      ? 'verified' 
+      : status;
 
     onSave({
       id: `tx_${Date.now()}`,
@@ -54,6 +61,7 @@ export default function TransactionModal({
       amount: numAmount,
       nav: currentNav,
       units: type === 'valuation_update' ? 0 : unitsCalculated,
+      status: finalStatus,
       note: note.trim() || (type === 'deposit' ? `Deposit by ${resolvedMember?.name || 'Investor'}` : type === 'withdrawal' ? `Withdrawal by ${resolvedMember?.name || 'Investor'}` : 'Valuation Update'),
     });
 
@@ -163,11 +171,44 @@ export default function TransactionModal({
             </div>
           )}
 
+          {type !== 'valuation_update' && selectedMember?.relationship !== 'self' && (
+            <div className="form-group">
+              <label className="form-label">Two-Way Transfer Verification</label>
+              <div className="flex gap-2">
+                <label className="flex items-center gap-1 text-xs" style={{ cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="tx_status"
+                    value="pending"
+                    checked={status === 'pending'}
+                    onChange={() => setStatus('pending')}
+                  />
+                  <span>⏳ Awaiting Investor Confirmation</span>
+                </label>
+                <label className="flex items-center gap-1 text-xs" style={{ cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="tx_status"
+                    value="verified"
+                    checked={status === 'verified'}
+                    onChange={() => setStatus('verified')}
+                  />
+                  <span>✓ Pre-Verified (Direct)</span>
+                </label>
+              </div>
+              <span className="text-xs text-muted block mt-1">
+                {status === 'pending'
+                  ? `When ${selectedMember?.name} logs into their portal, they will see a prompt to verify that this transfer matches their bank/UPI record.`
+                  : 'Transaction will be marked as verified immediately without requiring investor acknowledgment.'}
+              </span>
+            </div>
+          )}
+
           <div className="form-group">
             <label className="form-label">Memo / Note</label>
             <input
               type="text"
-              placeholder="Optional note"
+              placeholder="e.g. UPI Ref, HDFC Bank Transfer, Monthly SIP"
               value={note}
               onChange={(e) => setNote(e.target.value)}
               className="form-input"

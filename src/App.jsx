@@ -8,6 +8,7 @@ import {
   fetchAllFromSupabase,
   insertTransactionToSupabase,
   insertMemberToSupabase,
+  deleteMemberFromSupabase,
   upsertHoldingToSupabase,
   deleteHoldingFromSupabase,
   insertIncomeToSupabase,
@@ -15,6 +16,9 @@ import {
   insertSoloAssetToSupabase,
   deleteSoloAssetFromSupabase,
   updateFundInSupabase,
+  createFundInSupabase,
+  updateTransactionStatusInSupabase,
+  getSupabase,
   getAuthSession,
   signOutUser,
   onAuthChange
@@ -33,6 +37,7 @@ import SettingsView from './components/SettingsView';
 import TransactionModal from './components/TransactionModal';
 import MemberModal from './components/MemberModal';
 import StatementModal from './components/StatementModal';
+import CreateFundModal from './components/CreateFundModal';
 
 import './App.css';
 
@@ -216,7 +221,58 @@ export default function App() {
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
   const [txModalInitial, setTxModalInitial] = useState({});
   const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
+  const [isCreateFundModalOpen, setIsCreateFundModalOpen] = useState(false);
   const [selectedMemberForStatement, setSelectedMemberForStatement] = useState(null);
+
+  // Dual Perspective: 'auto' adapts to whether user owns this fund; manager can toggle preview
+  const [perspectiveMode, setPerspectiveMode] = useState('auto');
+  const effectivePerspective = perspectiveMode === 'auto'
+    ? (appState.fundInfo?.userRole || 'manager')
+    : perspectiveMode;
+
+  const togglePerspective = () => {
+    setPerspectiveMode((prev) => (prev === 'investor' ? 'manager' : 'investor'));
+  };
+
+  // Live Supabase Realtime synchronization
+  // When fund manager adds a transaction for an investor, it immediately reflects on their screen
+  useEffect(() => {
+    if (!isConnectedToCloud) return;
+    const sb = getSupabase();
+    if (!sb) return;
+
+    const channel = sb
+      .channel('public_syndicate_realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => {
+        refreshFromSupabase(appState.fundInfo?.id);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'members' }, () => {
+        refreshFromSupabase(appState.fundInfo?.id);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'holdings' }, () => {
+        refreshFromSupabase(appState.fundInfo?.id);
+      })
+      .subscribe();
+
+    return () => {
+      sb.removeChannel(channel);
+    };
+  }, [isConnectedToCloud, refreshFromSupabase, appState.fundInfo?.id]);
+
+  const handleCreateFund = async (fundData) => {
+    if (isConnectedToCloud) {
+      try {
+        const created = await createFundInSupabase(fundData, session?.user);
+        if (created) {
+          await refreshFromSupabase(created.id);
+          setIsCreateFundModalOpen(false);
+        }
+      } catch (err) {
+        console.error('Failed to create fund:', err);
+        setCloudError(`Failed to create fund: ${err.message}`);
+      }
+    }
+  };
 
   const fundMetrics = computeFundState(
     appState.fundInfo,
@@ -372,6 +428,23 @@ export default function App() {
     }));
   };
 
+  const handleDeleteMember = async (memberId) => {
+    if (isConnectedToCloud) {
+      try {
+        await deleteMemberFromSupabase(memberId);
+        await refreshFromSupabase(appState.fundInfo?.id);
+        return;
+      } catch (err) {
+        console.error('Failed to delete member from Supabase:', err);
+        setCloudError(`Failed to delete member: ${err.message}`);
+      }
+    }
+    setAppState((prev) => ({
+      ...prev,
+      members: prev.members.filter((m) => m.id !== memberId),
+    }));
+  };
+
   const handleAddTransaction = async (newTx) => {
     if (isConnectedToCloud) {
       try {
@@ -402,6 +475,33 @@ export default function App() {
       ...prev,
       transactions: [...prev.transactions, newTx],
     }));
+  };
+
+  const handleConfirmTransaction = async (txId, newStatus, notes = '') => {
+    // Optimistic local state update
+    setAppState((prev) => ({
+      ...prev,
+      transactions: prev.transactions.map((tx) =>
+        tx.id === txId
+          ? {
+              ...tx,
+              status: newStatus,
+              verifiedAt: new Date().toISOString(),
+              verificationNotes: notes || tx.verificationNotes,
+            }
+          : tx
+      ),
+    }));
+
+    if (isConnectedToCloud) {
+      try {
+        await updateTransactionStatusInSupabase(txId, newStatus, notes, session?.user);
+        await refreshFromSupabase();
+      } catch (e) {
+        console.error('Failed to update transaction status in Supabase:', e);
+        setCloudError(`Failed to update transaction status: ${e.message}`);
+      }
+    }
   };
 
   const handleSyncHoldingsToNAV = () => {
@@ -501,6 +601,14 @@ export default function App() {
         theme={theme}
         toggleTheme={toggleTheme}
         onOpenTransactionModal={() => handleOpenTransactionModal()}
+        onOpenStatementModal={() => {
+          const myMem = fundMetrics.members.find(m => m.isMe || (session?.user?.email && m.email?.toLowerCase() === session?.user?.email?.toLowerCase()));
+          if (myMem) setSelectedMemberForStatement(myMem);
+          else setActiveTab('statements');
+        }}
+        perspective={effectivePerspective}
+        onTogglePerspective={togglePerspective}
+        onCreateFund={() => setIsCreateFundModalOpen(true)}
         isCloudConnected={isConnectedToCloud}
         isLoadingCloud={isLoadingCloud}
         onRefreshCloud={refreshFromSupabase}
@@ -540,7 +648,10 @@ export default function App() {
             members={appState.members}
             holdings={appState.holdings}
             personalFinances={appState.personalFinances}
+            currentUser={session?.user}
+            perspective={effectivePerspective}
             onOpenTransactionModal={handleOpenTransactionModal}
+            onConfirmTransaction={handleConfirmTransaction}
             onSelectMember={(m) => setSelectedMemberForStatement(m)}
           />
         )}
@@ -552,8 +663,12 @@ export default function App() {
             currency={currency}
             transactions={appState.transactions}
             holdings={appState.holdings}
+            currentUser={session?.user}
+            perspective={effectivePerspective}
             onOpenTransactionModal={handleOpenTransactionModal}
             onOpenMemberModal={() => setIsMemberModalOpen(true)}
+            onDeleteMember={handleDeleteMember}
+            onConfirmTransaction={handleConfirmTransaction}
             onSelectMember={(m) => setSelectedMemberForStatement(m)}
           />
         )}
@@ -565,6 +680,8 @@ export default function App() {
             onDeleteHolding={handleDeleteHolding}
             fundMetrics={fundMetrics}
             currency={currency}
+            fundInfo={appState.fundInfo}
+            perspective={effectivePerspective}
             onSyncValuationToNAV={handleSyncHoldingsToNAV}
           />
         )}
@@ -587,6 +704,8 @@ export default function App() {
             fundMetrics={fundMetrics}
             fundInfo={appState.fundInfo}
             currency={currency}
+            currentUser={session?.user}
+            perspective={effectivePerspective}
             onSelectMember={(m) => setSelectedMemberForStatement(m)}
           />
         )}
@@ -632,6 +751,15 @@ export default function App() {
           currentNav={fundMetrics.currentNav}
           currency={currency}
           onClose={() => setSelectedMemberForStatement(null)}
+        />
+      )}
+
+      {isCreateFundModalOpen && (
+        <CreateFundModal
+          isOpen={isCreateFundModalOpen}
+          onClose={() => setIsCreateFundModalOpen(false)}
+          onCreateFund={handleCreateFund}
+          currentUser={session?.user}
         />
       )}
     </div>
