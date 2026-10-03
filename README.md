@@ -1,7 +1,7 @@
-# SyndicateVault 💎
+# SyndicateOS 💎
 
-> **Unitized Multi-Investor Fund & Personal Wealth Operating System**  
-> Designed specifically for managing personal finances alongside pooled investments with your partner, girlfriend, or friends with **100% mathematical fairness**.
+> **Institutional Unitized Investment Ledger & Wealth Operating System**  
+> Designed for managing pooled syndicates and joint investments with partners, family, and co-investors with **100% mathematical fairness** using unitized Net Asset Value (NAV) accounting and live AMFI feeds.
 
 ---
 
