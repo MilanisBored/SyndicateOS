@@ -217,7 +217,12 @@ export default function SyndicateView({
                 <div className="data-col">
                   <span className="lbl">Current Equity</span>
                   <span className="val mono">{formatCurrency(member.currentValue, currency)}</span>
-                  <span className="text-xs text-muted mono">{formatNumber(member.units, 2)} units</span>
+                  <span className="text-xs text-secondary mono font-medium mt-0.5 block">
+                    {formatNumber(member.units, 4)} units
+                  </span>
+                  <span className="text-xs text-muted mono" style={{ fontSize: 10 }}>
+                    @ NAV {formatCurrency(fundMetrics?.currentNav || 100, currency, { decimals: 2 })}
+                  </span>
                 </div>
                 <div className="data-col">
                   <span className="lbl">Net Return</span>
