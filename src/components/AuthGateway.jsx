@@ -12,7 +12,8 @@ export default function AuthGateway({ onAuthenticated, onGuestAccess, onBackToLa
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  const isConfigured = isSupabaseConfigured();
+  const [isConfigured, setIsConfigured] = useState(isSupabaseConfigured());
+  const [keyInput, setKeyInput] = useState('');
 
   const handleGoogleLogin = async () => {
     setErrorMsg('');
@@ -231,16 +232,43 @@ export default function AuthGateway({ onAuthenticated, onGuestAccess, onBackToLa
 
         {!isConfigured && (
           <div style={{
-            background: 'rgba(234, 179, 8, 0.1)',
-            border: '1px solid rgba(234, 179, 8, 0.3)',
-            color: '#eab308',
+            background: 'rgba(234, 179, 8, 0.08)',
+            border: '1px solid rgba(234, 179, 8, 0.25)',
             borderRadius: 'var(--radius-sm)',
-            padding: '8px 12px',
-            fontSize: '11px',
+            padding: '12px',
             marginBottom: '16px',
-            lineHeight: 1.4,
+            fontSize: '11px',
           }}>
-            ⚠️ Cloud database URL & Key not detected in environment. You can enter as Guest to configure settings inside.
+            <div style={{ fontWeight: 600, color: '#eab308', marginBottom: '4px' }}>
+              ⚠️ Supabase Anon Key Required
+            </div>
+            <p style={{ color: 'var(--text-secondary)', margin: '0 0 8px 0', lineHeight: 1.4 }}>
+              Paste your Supabase <code style={{ color: 'var(--text-primary)', background: 'var(--bg-subtle)', padding: '1px 4px', borderRadius: '3px' }}>anon / public</code> key from Project Settings → API:
+            </p>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <input
+                type="password"
+                value={keyInput}
+                onChange={(e) => setKeyInput(e.target.value)}
+                placeholder="eyJhbGciOi..."
+                className="form-input mono"
+                style={{ flex: 1, fontSize: '11px', padding: '6px 8px' }}
+              />
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ fontSize: '11px', padding: '6px 12px', whiteSpace: 'nowrap' }}
+                onClick={() => {
+                  if (keyInput.trim()) {
+                    localStorage.setItem('syndicate_sb_key', keyInput.trim());
+                    setIsConfigured(isSupabaseConfigured());
+                    setSuccessMsg('Supabase API key saved. You can now authenticate.');
+                  }
+                }}
+              >
+                Save Key
+              </button>
+            </div>
           </div>
         )}
 

@@ -34,14 +34,16 @@ export function isSupabaseConfigured() {
 }
 
 let supabaseInstance = null;
+let cachedKey = null;
 
 export function getSupabase() {
   const { url, key } = getSupabaseCredentials();
   if (!url || !key) return null;
 
-  if (!supabaseInstance || supabaseInstance.supabaseUrl !== url) {
+  if (!supabaseInstance || supabaseInstance.supabaseUrl !== url || cachedKey !== key) {
     try {
       supabaseInstance = createClient(url, key);
+      cachedKey = key;
     } catch (e) {
       console.error('Error creating Supabase client:', e);
       return null;
