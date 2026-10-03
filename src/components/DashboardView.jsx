@@ -1,5 +1,11 @@
 import React, { useState, useMemo } from 'react';
-import { formatCurrency, formatNumber } from '../utils/navEngine';
+import { 
+  formatCurrency, 
+  formatNumber, 
+  generateShareableSummary, 
+  exportTransactionsToCSV, 
+  exportMembersToCSV 
+} from '../utils/navEngine';
 
 const chartWidth = 560;
 const chartHeight = 130;
@@ -23,6 +29,7 @@ export default function DashboardView({
   onOpenActionCenter
 }) {
   const [hoveredPoint, setHoveredPoint] = useState(null);
+  const [copiedSummary, setCopiedSummary] = useState(false);
   const handleSelectMember = onSelectMember || onOpenStatementModal || (() => {});
 
   const isInvestor = perspective === 'investor' || fundInfo?.userRole === 'investor';
@@ -39,6 +46,18 @@ export default function DashboardView({
   }, [fundMetrics?.members, userEmail, fundInfo?.myMemberId]);
 
   const [txFilter, setTxFilter] = useState(isInvestor ? 'my' : 'all');
+  const [txSearchTerm, setTxSearchTerm] = useState('');
+  const [txPage, setTxPage] = useState(1);
+  const [txPageSize, setTxPageSize] = useState(15);
+  const [memberSearchTerm, setMemberSearchTerm] = useState('');
+
+  const handleCopyMySummary = () => {
+    if (!currentMember) return;
+    const text = generateShareableSummary(currentMember, fundInfo, fundMetrics.currentNav);
+    navigator.clipboard.writeText(text);
+    setCopiedSummary(true);
+    setTimeout(() => setCopiedSummary(false), 2000);
+  };
 
   // Pending transfers awaiting this investor's confirmation
   const pendingInvestorTx = useMemo(() => {
@@ -96,14 +115,25 @@ export default function DashboardView({
               </span>
             </div>
           </div>
-          <button 
-            type="button" 
-            className="btn btn-primary btn-sm mono"
-            onClick={() => handleSelectMember(currentMember)}
-            style={{ fontSize: 11 }}
-          >
-            Full Statement
-          </button>
+          <div className="flex items-center gap-2">
+            <button 
+              type="button" 
+              className="btn btn-secondary btn-sm mono"
+              onClick={handleCopyMySummary}
+              style={{ fontSize: 11 }}
+              title="Copy formatted summary to clipboard for WhatsApp/SMS"
+            >
+              {copiedSummary ? 'COPIED' : 'SHARE SUMMARY'}
+            </button>
+            <button 
+              type="button" 
+              className="btn btn-primary btn-sm mono"
+              onClick={() => handleSelectMember(currentMember)}
+              style={{ fontSize: 11 }}
+            >
+              Statement / PDF
+            </button>
+          </div>
         </div>
       )}
 
@@ -202,7 +232,7 @@ export default function DashboardView({
                 {formatCurrency(fundMetrics.partnerStakeValue + fundMetrics.friendsStakeValue, currency)}
               </span>
               <div className="metric-delta text-muted">
-                <span>{Math.max(0, fundMetrics.members.length - 1)} external investors</span>
+                <span>{Math.max(0, (fundMetrics.members || []).length - 1)} external investors</span>
               </div>
             </div>
           </>
@@ -303,195 +333,339 @@ export default function DashboardView({
           </div>
         </div>
 
-        {/* Member Equity Breakdown */}
+        {/* Member Equity Breakdown (Institutional Cap Table) */}
         <div className="card chart-box">
           <div className="section-head">
             <span className="section-title">Participants ({fundMetrics?.members?.length || 0})</span>
-            {!isInvestor && (
-              <button 
-                type="button" 
-                className="btn btn-secondary btn-sm"
-                onClick={() => onOpenTransactionModal && onOpenTransactionModal()}
-              >
-                + Entry
-              </button>
-            )}
+            <div className="flex gap-2 items-center">
+              {!isInvestor && (fundMetrics?.members?.length || 0) > 0 && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm mono"
+                  style={{ fontSize: 10, padding: '2px 7px' }}
+                  onClick={() => exportMembersToCSV(fundMetrics.members, fundInfo, fundMetrics.currentNav)}
+                  title="Export Cap Table to CSV"
+                >
+                  Export CSV
+                </button>
+              )}
+              {!isInvestor && (
+                <button 
+                  type="button" 
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => onOpenTransactionModal && onOpenTransactionModal()}
+                >
+                  + Entry
+                </button>
+              )}
+            </div>
           </div>
 
-          <div className="compact-list">
-            {(fundMetrics?.members || []).map((m) => {
-              const isThisMe = m.id === currentMember?.id || m.isMe;
-              return (
-                <div 
-                  key={m.id} 
-                  className="compact-list-row"
-                  style={{ cursor: 'pointer', background: isThisMe ? 'rgba(99, 102, 241, 0.06)' : undefined }}
-                  onClick={() => handleSelectMember(m)}
-                  title="View Statement"
-                >
-                  <div>
-                    <div className="font-medium flex items-center gap-1">
-                      {m.name}
-                      {isThisMe && (
-                        <span className="badge badge-profit mono" style={{ fontSize: 9, padding: '1px 5px' }}>
-                          You
-                        </span>
-                      )}
+          {(fundMetrics?.members?.length || 0) > 4 && (
+            <div className="mb-2">
+              <input
+                type="text"
+                placeholder="Filter participants by name or code..."
+                value={memberSearchTerm}
+                onChange={(e) => setMemberSearchTerm(e.target.value)}
+                className="input input-sm w-full mono"
+                style={{ fontSize: 11, padding: '4px 8px' }}
+              />
+            </div>
+          )}
+
+          <div className="compact-list" style={{ maxHeight: '280px', overflowY: 'auto' }}>
+            {(fundMetrics?.members || [])
+              .filter(m => {
+                if (!memberSearchTerm.trim()) return true;
+                const term = memberSearchTerm.toLowerCase();
+                return (m.name && m.name.toLowerCase().includes(term)) ||
+                       (m.email && m.email.toLowerCase().includes(term)) ||
+                       (m.userCode && m.userCode.toLowerCase().includes(term)) ||
+                       (m.role && m.role.toLowerCase().includes(term));
+              })
+              .map((m) => {
+                const isThisMe = m.id === currentMember?.id || m.isMe;
+                return (
+                  <div 
+                    key={m.id} 
+                    className="compact-list-row"
+                    style={{ cursor: 'pointer', background: isThisMe ? 'rgba(99, 102, 241, 0.06)' : undefined }}
+                    onClick={() => handleSelectMember(m)}
+                    title="View Statement"
+                  >
+                    <div>
+                      <div className="font-medium flex items-center gap-1">
+                        {m.name}
+                        {isThisMe && (
+                          <span className="badge badge-profit mono" style={{ fontSize: 9, padding: '1px 5px' }}>
+                            You
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-muted mono">
+                        {formatNumber(m.units, 2)} units &bull; {formatNumber(m.ownershipPct, 1)}%
+                      </div>
                     </div>
-                    <div className="text-xs text-muted mono">
-                      {formatNumber(m.units, 2)} units &bull; {formatNumber(m.ownershipPct, 1)}%
+                    <div className="text-right">
+                      <div className="mono font-semibold">{formatCurrency(m.currentValue, currency)}</div>
+                      <div className={`text-xs mono ${m.totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
+                        {m.totalProfit >= 0 ? '+' : ''}{formatNumber(m.roiPercentage, 1)}%
+                      </div>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="mono font-semibold">{formatCurrency(m.currentValue, currency)}</div>
-                    <div className={`text-xs mono ${m.totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
-                      {m.totalProfit >= 0 ? '+' : ''}{formatNumber(m.roiPercentage, 1)}%
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
           </div>
         </div>
       </div>
 
-      {/* Recent Ledger Activity */}
+      {/* Ledger Activity & Search with Pagination (Scaled for 100+ investors) */}
       <div className="card p-4">
-        <div className="section-head">
-          <span className="section-title">Recent Transactions</span>
+        <div className="section-head mb-3">
+          <div className="flex items-center gap-3">
+            <span className="section-title">Ledger Transactions ({transactions.length})</span>
+            {transactions.length > 0 && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm mono"
+                style={{ fontSize: 10, padding: '2px 7px' }}
+                onClick={() => exportTransactionsToCSV(transactions, members, fundInfo)}
+                title="Download complete ledger as CSV for Excel/Sheets"
+              >
+                Export CSV
+              </button>
+            )}
+          </div>
 
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap items-center">
+            <input
+              type="text"
+              placeholder="Search ledger (name, note, amount, date)..."
+              value={txSearchTerm}
+              onChange={(e) => {
+                setTxSearchTerm(e.target.value);
+                setTxPage(1);
+              }}
+              className="input input-sm mono"
+              style={{ fontSize: 11, padding: '3px 8px', minWidth: '180px' }}
+            />
+
             <button
               type="button"
               className={`btn btn-sm ${txFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
               style={{ fontSize: 11, padding: '3px 9px' }}
-              onClick={() => setTxFilter('all')}
+              onClick={() => {
+                setTxFilter('all');
+                setTxPage(1);
+              }}
             >
-              All Pool Activity
+              All Activity
             </button>
             {currentMember && (
               <button
                 type="button"
                 className={`btn btn-sm ${txFilter === 'my' ? 'btn-primary' : 'btn-secondary'}`}
                 style={{ fontSize: 11, padding: '3px 9px' }}
-                onClick={() => setTxFilter('my')}
+                onClick={() => {
+                  setTxFilter('my');
+                  setTxPage(1);
+                }}
               >
-                My Investments Only
+                My Transactions
               </button>
             )}
           </div>
         </div>
 
-        <div className="table-responsive">
-          <table className="dense-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Participant</th>
-                <th>Type</th>
-                <th>Amount</th>
-                <th>NAV</th>
-                <th>Units Impact</th>
-                <th>Status</th>
-                <th>Note</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...transactions]
-                .filter(tx => {
-                  if (txFilter === 'my' && currentMember) {
-                    const memberNameLower = (currentMember.name || '').toLowerCase();
-                    return tx.memberId === currentMember.id || 
-                           (memberNameLower && tx.memberName && tx.memberName.toLowerCase() === memberNameLower) ||
-                           (memberNameLower && tx.note && tx.note.toLowerCase().includes(memberNameLower)) ||
-                           tx.isMyTx;
-                  }
-                  return true;
-                })
-                .sort((a, b) => new Date(b.date) - new Date(a.date))
-                .slice(0, 8)
-                .map((tx) => {
-                  const member = members.find((m) => 
-                    m.id === tx.memberId ||
-                    (tx.memberId && String(m.id).toLowerCase() === String(tx.memberId).toLowerCase()) ||
-                    (tx.memberName && m.name.toLowerCase() === tx.memberName.toLowerCase()) ||
-                    (tx.note && tx.note.toLowerCase().includes(m.name.toLowerCase()))
-                  );
-                  const isDeposit = tx.type === 'deposit';
-                  const isWithdrawal = tx.type === 'withdrawal';
-                  const isValuation = tx.type === 'valuation_update';
-                  const isThisMyTx = currentMember && (
-                    tx.memberId === currentMember.id || 
-                    tx.isMyTx || 
-                    (member && member.id === currentMember.id)
-                  );
-                  const txStatus = tx.status || 'verified';
+        {(() => {
+          // 1. Filter
+          const filtered = [...transactions]
+            .filter(tx => {
+              if (txFilter === 'my' && currentMember) {
+                const memberNameLower = (currentMember.name || '').toLowerCase();
+                const isMatch = tx.memberId === currentMember.id || 
+                  (memberNameLower && tx.memberName && tx.memberName.toLowerCase() === memberNameLower) ||
+                  (memberNameLower && tx.note && tx.note.toLowerCase().includes(memberNameLower)) ||
+                  tx.isMyTx;
+                if (!isMatch) return false;
+              }
 
-                  return (
-                    <tr key={tx.id} style={isThisMyTx ? { background: 'rgba(99, 102, 241, 0.05)' } : {}}>
-                      <td className="mono text-muted">{tx.date}</td>
-                      <td>
-                        <span className="font-medium">
-                          {member ? member.name : isValuation ? 'Fund Revaluation' : (tx.memberName || 'Investor')}
-                        </span>
-                        {isThisMyTx && (
-                          <span className="badge badge-profit mono ml-2" style={{ fontSize: 9, padding: '1px 4px' }}>
-                            You
-                          </span>
-                        )}
-                      </td>
-                      <td>
-                        <span className={`badge ${
-                          isDeposit ? 'badge-profit' : isWithdrawal ? 'badge-loss' : 'badge-neutral'
-                        }`}>
-                          {isDeposit ? 'Deposit' : isWithdrawal ? 'Withdrawal' : 'Valuation'}
-                        </span>
-                      </td>
-                      <td className="mono font-semibold">
-                        <span className={isDeposit ? 'text-profit' : isWithdrawal ? 'text-loss' : ''}>
-                          {isDeposit ? '+' : isWithdrawal ? '-' : ''}{formatCurrency(tx.amount, currency)}
-                        </span>
-                      </td>
-                      <td className="mono text-muted">{formatCurrency(tx.nav, currency, { decimals: 2 })}</td>
-                      <td className="mono text-muted">
-                        {isValuation ? '—' : `${formatNumber(tx.units, 2)} u`}
-                      </td>
-                      <td>
-                        {txStatus === 'pending' ? (
-                          <div className="flex items-center gap-1">
-                            <span className="badge badge-warning mono" style={{ fontSize: 10, padding: '2px 5px' }}>
-                              PENDING
-                            </span>
-                            {isThisMyTx && onConfirmTransaction && (
-                              <button
-                                type="button"
-                                className="btn btn-primary btn-sm mono"
-                                style={{ fontSize: 9, padding: '1px 5px', lineHeight: 1.2 }}
-                                onClick={() => onConfirmTransaction(tx.id, 'verified', 'Confirmed by investor')}
-                              >
-                                Confirm
-                              </button>
-                            )}
-                          </div>
-                        ) : txStatus === 'disputed' ? (
-                          <span className="badge badge-loss mono" style={{ fontSize: 10, padding: '2px 5px' }} title={tx.verificationNotes || 'Disputed'}>
-                            DISPUTED
-                          </span>
-                        ) : (
-                          <span className="badge badge-profit mono" style={{ fontSize: 10, padding: '2px 5px' }}>
-                            VERIFIED
-                          </span>
-                        )}
-                      </td>
-                      <td className="text-muted text-xs truncate" style={{ maxWidth: 200 }}>
-                        {tx.note || '—'}
-                      </td>
+              if (txSearchTerm.trim()) {
+                const term = txSearchTerm.toLowerCase();
+                const dateMatch = (tx.date || '').toLowerCase().includes(term);
+                const noteMatch = (tx.note || '').toLowerCase().includes(term);
+                const memberMatch = (tx.memberName || '').toLowerCase().includes(term);
+                const typeMatch = (tx.type || '').toLowerCase().includes(term);
+                const amountMatch = String(tx.amount || '').includes(term);
+                if (!dateMatch && !noteMatch && !memberMatch && !typeMatch && !amountMatch) return false;
+              }
+              return true;
+            })
+            .sort((a, b) => new Date(b.date || '1970-01-01') - new Date(a.date || '1970-01-01'));
+
+          const totalFiltered = filtered.length;
+          const totalPages = Math.max(1, Math.ceil(totalFiltered / txPageSize));
+          const currentPage = Math.min(txPage, totalPages);
+          const startIndex = (currentPage - 1) * txPageSize;
+          const paginatedTxs = filtered.slice(startIndex, startIndex + txPageSize);
+
+          return (
+            <>
+              <div className="table-responsive">
+                <table className="dense-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Participant</th>
+                      <th>Type</th>
+                      <th>Amount</th>
+                      <th>NAV</th>
+                      <th>Units Impact</th>
+                      <th>Status</th>
+                      <th>Note</th>
                     </tr>
-                  );
-                })}
-            </tbody>
-          </table>
-        </div>
+                  </thead>
+                  <tbody>
+                    {paginatedTxs.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="text-center text-muted p-4 text-xs">
+                          {txSearchTerm ? 'No transactions matching search query.' : 'No transactions recorded yet.'}
+                        </td>
+                      </tr>
+                    ) : (
+                      paginatedTxs.map((tx) => {
+                        const member = members.find((m) => 
+                          m.id === tx.memberId ||
+                          (tx.memberId && String(m.id).toLowerCase() === String(tx.memberId).toLowerCase()) ||
+                          (tx.memberName && m.name.toLowerCase() === tx.memberName.toLowerCase()) ||
+                          (tx.note && tx.note.toLowerCase().includes(m.name.toLowerCase()))
+                        );
+                        const isDeposit = tx.type === 'deposit';
+                        const isWithdrawal = tx.type === 'withdrawal';
+                        const isValuation = tx.type === 'valuation_update';
+                        const isThisMyTx = currentMember && (
+                          tx.memberId === currentMember.id || 
+                          tx.isMyTx || 
+                          (member && member.id === currentMember.id)
+                        );
+                        const txStatus = tx.status || 'verified';
+
+                        return (
+                          <tr key={tx.id} style={isThisMyTx ? { background: 'rgba(99, 102, 241, 0.05)' } : {}}>
+                            <td className="mono text-muted">{tx.date}</td>
+                            <td>
+                              <span className="font-medium">
+                                {member ? member.name : isValuation ? 'Fund Revaluation' : (tx.memberName || 'Investor')}
+                              </span>
+                              {isThisMyTx && (
+                                <span className="badge badge-profit mono ml-2" style={{ fontSize: 9, padding: '1px 4px' }}>
+                                  You
+                                </span>
+                              )}
+                            </td>
+                            <td>
+                              <span className={`badge ${
+                                isDeposit ? 'badge-profit' : isWithdrawal ? 'badge-loss' : 'badge-neutral'
+                              }`}>
+                                {isDeposit ? 'Deposit' : isWithdrawal ? 'Withdrawal' : 'Valuation'}
+                              </span>
+                            </td>
+                            <td className="mono font-semibold">
+                              <span className={isDeposit ? 'text-profit' : isWithdrawal ? 'text-loss' : ''}>
+                                {isDeposit ? '+' : isWithdrawal ? '-' : ''}{formatCurrency(tx.amount, currency)}
+                              </span>
+                            </td>
+                            <td className="mono text-muted">{formatCurrency(tx.nav, currency, { decimals: 2 })}</td>
+                            <td className="mono text-muted">
+                              {isValuation ? '—' : `${formatNumber(tx.units, 2)} u`}
+                            </td>
+                            <td>
+                              {txStatus === 'pending' ? (
+                                <div className="flex items-center gap-1">
+                                  <span className="badge badge-warning mono" style={{ fontSize: 10, padding: '2px 5px' }}>
+                                    PENDING
+                                  </span>
+                                  {isThisMyTx && onConfirmTransaction && (
+                                    <button
+                                      type="button"
+                                      className="btn btn-primary btn-sm mono"
+                                      style={{ fontSize: 9, padding: '1px 5px', lineHeight: 1.2 }}
+                                      onClick={() => onConfirmTransaction(tx.id, 'verified', 'Confirmed by investor')}
+                                    >
+                                      Confirm
+                                    </button>
+                                  )}
+                                </div>
+                              ) : txStatus === 'disputed' ? (
+                                <span className="badge badge-loss mono" style={{ fontSize: 10, padding: '2px 5px' }} title={tx.verificationNotes || 'Disputed'}>
+                                  DISPUTED
+                                </span>
+                              ) : (
+                                <span className="badge badge-profit mono" style={{ fontSize: 10, padding: '2px 5px' }}>
+                                  VERIFIED
+                                </span>
+                              )}
+                            </td>
+                            <td className="text-muted text-xs truncate" style={{ maxWidth: 200 }}>
+                              {tx.note || '—'}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination Controls */}
+              {totalFiltered > 0 && (
+                <div className="flex justify-between items-center mt-3 pt-3 text-xs text-muted" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                  <div>
+                    Showing {startIndex + 1}–{Math.min(startIndex + txPageSize, totalFiltered)} of {totalFiltered}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm mono"
+                      style={{ fontSize: 10, padding: '2px 8px' }}
+                      disabled={currentPage <= 1}
+                      onClick={() => setTxPage(p => Math.max(1, p - 1))}
+                    >
+                      &larr; Prev
+                    </button>
+                    <span className="mono">
+                      {currentPage} / {totalPages}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm mono"
+                      style={{ fontSize: 10, padding: '2px 8px' }}
+                      disabled={currentPage >= totalPages}
+                      onClick={() => setTxPage(p => Math.min(totalPages, p + 1))}
+                    >
+                      Next &rarr;
+                    </button>
+                    <select
+                      value={txPageSize}
+                      onChange={(e) => {
+                        setTxPageSize(Number(e.target.value));
+                        setTxPage(1);
+                      }}
+                      className="currency-select-minimal mono ml-2"
+                      style={{ fontSize: 10, padding: '2px 4px' }}
+                    >
+                      <option value={15}>15 / page</option>
+                      <option value={30}>30 / page</option>
+                      <option value={50}>50 / page</option>
+                      <option value={100}>100 / page</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+            </>
+          );
+        })()}
       </div>
     </div>
   );

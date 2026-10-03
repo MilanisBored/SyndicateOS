@@ -580,4 +580,76 @@ export function normalizeUserCode(input) {
   return str;
 }
 
+/**
+ * Downloads a string payload as a CSV file in browser
+ */
+export function downloadCSV(filename, csvContent) {
+  if (typeof window === 'undefined') return;
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Exports all transactions to standard audit CSV
+ */
+export function exportTransactionsToCSV(transactions = [], members = [], fundInfo = {}) {
+  const headers = ['Date', 'Participant', 'Role', 'Type', 'Amount', 'Currency', 'NAV', 'Units', 'Status', 'Verified At', 'Note'];
+  const rows = transactions.map(t => {
+    const mem = members.find(m => m.id === t.memberId || String(m.id).toLowerCase() === String(t.memberId).toLowerCase());
+    const name = mem ? mem.name : (t.type === 'valuation_update' ? 'Fund Revaluation' : (t.memberName || 'Investor'));
+    const role = mem ? mem.role : '';
+    const safeNote = `"${String(t.note || '').replace(/"/g, '""')}"`;
+    return [
+      t.date || '',
+      `"${String(name).replace(/"/g, '""')}"`,
+      role,
+      t.type || 'deposit',
+      t.amount || 0,
+      fundInfo?.currency || 'INR',
+      t.nav || 100,
+      t.units || 0,
+      t.status || 'verified',
+      t.verifiedAt || '',
+      safeNote
+    ].join(',');
+  });
+
+  const csv = [headers.join(','), ...rows].join('\n');
+  const filename = `${String(fundInfo?.name || 'Syndicate').replace(/[^a-zA-Z0-9]/g, '_')}_transactions_${new Date().toISOString().split('T')[0]}.csv`;
+  downloadCSV(filename, csv);
+}
+
+/**
+ * Exports complete member cap-table to CSV
+ */
+export function exportMembersToCSV(members = [], fundInfo = {}, currentNav = 100) {
+  const headers = ['Name', 'Role', 'Email', 'User Code', 'Units', 'Current NAV', 'Current Equity', 'Total Deposited', 'Total Withdrawn', 'Net Return', 'ROI %', 'Ownership %'];
+  const rows = members.map(m => [
+    `"${String(m.name || '').replace(/"/g, '""')}"`,
+    m.role || 'Investor',
+    m.email || '',
+    m.userCode || '',
+    Number(m.units || 0).toFixed(4),
+    Number(currentNav || 100).toFixed(4),
+    Number(m.currentValue || 0).toFixed(2),
+    Number(m.totalDeposited || 0).toFixed(2),
+    Number(m.totalWithdrawn || 0).toFixed(2),
+    Number(m.totalProfit || 0).toFixed(2),
+    `${Number(m.roiPercentage || 0).toFixed(2)}%`,
+    `${Number(m.ownershipPct || 0).toFixed(2)}%`
+  ].join(','));
+
+  const csv = [headers.join(','), ...rows].join('\n');
+  const filename = `${String(fundInfo?.name || 'Syndicate').replace(/[^a-zA-Z0-9]/g, '_')}_cap_table_${new Date().toISOString().split('T')[0]}.csv`;
+  downloadCSV(filename, csv);
+}
+
+
 

@@ -1,13 +1,18 @@
 import React, { useState } from 'react';
-import { formatCurrency, formatNumber } from '../utils/navEngine';
+import { 
+  formatCurrency, 
+  formatNumber, 
+  exportMembersToCSV, 
+  exportTransactionsToCSV 
+} from '../utils/navEngine';
 import MemberDeleteGatekeeperModal from './MemberDeleteGatekeeperModal';
 
 export default function SyndicateView({ 
-  fundMetrics, 
-  fundInfo, 
-  currency, 
-  transactions, 
-  holdings = [],
+  fundMetrics = {}, 
+  fundInfo = {}, 
+  currency = 'INR', 
+  transactions = [], 
+  holdings = [], 
   currentUser,
   perspective = 'manager',
   onOpenTransactionModal, 
@@ -20,6 +25,9 @@ export default function SyndicateView({
   const [filterType, setFilterType] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [memberSearchTerm, setMemberSearchTerm] = useState('');
+  const [ledgerPage, setLedgerPage] = useState(1);
+  const [ledgerPageSize, setLedgerPageSize] = useState(25);
   const [memberForDeletion, setMemberForDeletion] = useState(null);
 
   const isInvestor = perspective === 'investor' || fundInfo?.userRole === 'investor';
@@ -69,7 +77,18 @@ export default function SyndicateView({
             Unitized pool: capital entries and redemptions buy/redeem units at current NAV.
           </span>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center flex-wrap">
+          {!isInvestor && (fundMetrics?.members?.length || 0) > 0 && (
+            <button 
+              type="button" 
+              className="btn btn-secondary btn-sm mono"
+              style={{ fontSize: 11 }}
+              onClick={() => exportMembersToCSV(fundMetrics.members, fundInfo, fundMetrics.currentNav)}
+              title="Download Cap Table as CSV for Excel/Sheets"
+            >
+              Export Cap Table CSV
+            </button>
+          )}
           {!isInvestor ? (
             <>
               <button 
@@ -95,6 +114,30 @@ export default function SyndicateView({
         </div>
       </div>
 
+      {/* Participant Search Filter */}
+      {(fundMetrics?.members?.length || 0) > 4 && (
+        <div className="flex justify-between items-center mb-3 gap-2 flex-wrap">
+          <input
+            type="text"
+            placeholder="Search participants by name, role, email, code..."
+            value={memberSearchTerm}
+            onChange={(e) => setMemberSearchTerm(e.target.value)}
+            className="input input-sm mono"
+            style={{ fontSize: 11, padding: '4px 10px', maxWidth: '300px', width: '100%' }}
+          />
+          <div className="text-xs text-muted mono">
+            Participants: {(fundMetrics?.members || []).filter(m => {
+              if (!memberSearchTerm.trim()) return true;
+              const term = memberSearchTerm.toLowerCase();
+              return (m.name && m.name.toLowerCase().includes(term)) ||
+                     (m.email && m.email.toLowerCase().includes(term)) ||
+                     (m.userCode && m.userCode.toLowerCase().includes(term)) ||
+                     (m.role && m.role.toLowerCase().includes(term));
+            }).length} of {(fundMetrics?.members || []).length}
+          </div>
+        </div>
+      )}
+
       {/* Unallocated Holdings Notice */}
       {holdings.length > 0 && fundMetrics.totalUnits === 0 && !isInvestor && (
         <div 
@@ -110,7 +153,7 @@ export default function SyndicateView({
             </span>
           </div>
           <div className="flex gap-2 shrink-0 ml-3">
-            {fundMetrics.members.map(m => (
+            {(fundMetrics?.members || []).map(m => (
               <button
                 key={m.id}
                 type="button"
@@ -126,7 +169,16 @@ export default function SyndicateView({
 
       {/* Compact Member Cards Grid */}
       <div className="member-cards-grid">
-        {fundMetrics.members.map((member) => {
+        {(fundMetrics?.members || [])
+          .filter(member => {
+            if (!memberSearchTerm.trim()) return true;
+            const term = memberSearchTerm.toLowerCase();
+            return (member.name && member.name.toLowerCase().includes(term)) ||
+                   (member.email && member.email.toLowerCase().includes(term)) ||
+                   (member.userCode && member.userCode.toLowerCase().includes(term)) ||
+                   (member.role && member.role.toLowerCase().includes(term));
+          })
+          .map((member) => {
           const isThisMe = member.isMe || (userEmail && member.email && member.email.toLowerCase().trim() === userEmail);
           const displayName = (isInvestor && !isThisMe && member.relationship !== 'self') 
             ? `Co-Investor (${member.role || 'Member'})` 
@@ -237,12 +289,23 @@ export default function SyndicateView({
 
       {/* Compact Ledger Section */}
       <div className="card p-4 mt-4">
-        <div className="section-head">
-          <div className="flex items-center gap-2">
-            <span className="section-title">Transactions Ledger</span>
+        <div className="section-head mb-3">
+          <div className="flex items-center gap-3">
+            <span className="section-title">Transactions Ledger ({filteredTx.length})</span>
+            {filteredTx.length > 0 && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm mono"
+                style={{ fontSize: 10, padding: '2px 7px' }}
+                onClick={() => exportTransactionsToCSV(filteredTx, fundMetrics?.members || [], fundInfo)}
+                title="Download filtered transactions as CSV"
+              >
+                Export CSV
+              </button>
+            )}
             {transactions.filter(t => t.status === 'pending').length > 0 && (
               <span className="badge badge-warning mono text-xs font-semibold" style={{ padding: '2px 7px' }}>
-                PENDING CONFIRMATION: {transactions.filter(t => t.status === 'pending').length}
+                PENDING: {transactions.filter(t => t.status === 'pending').length}
               </span>
             )}
           </div>
@@ -308,14 +371,24 @@ export default function SyndicateView({
               </tr>
             </thead>
             <tbody>
-              {filteredTx.length === 0 ? (
-                <tr>
-                  <td colSpan="8" className="text-center text-muted py-6">
-                    No transactions found.
-                  </td>
-                </tr>
-              ) : (
-                filteredTx.map((tx) => {
+              {(() => {
+                const totalFiltered = filteredTx.length;
+                const totalPages = Math.max(1, Math.ceil(totalFiltered / ledgerPageSize));
+                const currentPage = Math.min(ledgerPage, totalPages);
+                const startIndex = (currentPage - 1) * ledgerPageSize;
+                const paginatedTxs = filteredTx.slice(startIndex, startIndex + ledgerPageSize);
+
+                if (paginatedTxs.length === 0) {
+                  return (
+                    <tr>
+                      <td colSpan="8" className="text-center text-muted py-6">
+                        No transactions found matching current filters.
+                      </td>
+                    </tr>
+                  );
+                }
+
+                return paginatedTxs.map((tx) => {
                   const member = resolveMember(tx);
                   const isDeposit = tx.type === 'deposit';
                   const isWithdrawal = tx.type === 'withdrawal';
@@ -387,11 +460,56 @@ export default function SyndicateView({
                       </td>
                     </tr>
                   );
-                })
-              )}
+                });
+              })()}
             </tbody>
           </table>
         </div>
+
+        {/* Ledger Pagination Controls */}
+        {filteredTx.length > 0 && (
+          <div className="flex justify-between items-center mt-3 pt-3 text-xs text-muted" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+            <div>
+              Showing {((Math.min(ledgerPage, Math.max(1, Math.ceil(filteredTx.length / ledgerPageSize))) - 1) * ledgerPageSize) + 1}–{Math.min(Math.min(ledgerPage, Math.max(1, Math.ceil(filteredTx.length / ledgerPageSize))) * ledgerPageSize, filteredTx.length)} of {filteredTx.length} records
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm mono"
+                style={{ fontSize: 10, padding: '2px 8px' }}
+                disabled={ledgerPage <= 1}
+                onClick={() => setLedgerPage(p => Math.max(1, p - 1))}
+              >
+                &larr; Prev
+              </button>
+              <span className="mono">
+                {ledgerPage} / {Math.max(1, Math.ceil(filteredTx.length / ledgerPageSize))}
+              </span>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm mono"
+                style={{ fontSize: 10, padding: '2px 8px' }}
+                disabled={ledgerPage >= Math.max(1, Math.ceil(filteredTx.length / ledgerPageSize))}
+                onClick={() => setLedgerPage(p => Math.min(Math.max(1, Math.ceil(filteredTx.length / ledgerPageSize)), p + 1))}
+              >
+                Next &rarr;
+              </button>
+              <select
+                value={ledgerPageSize}
+                onChange={(e) => {
+                  setLedgerPageSize(Number(e.target.value));
+                  setLedgerPage(1);
+                }}
+                className="currency-select-minimal mono ml-2"
+                style={{ fontSize: 10, padding: '2px 4px' }}
+              >
+                <option value={25}>25 / page</option>
+                <option value={50}>50 / page</option>
+                <option value={100}>100 / page</option>
+              </select>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Member Removal Gatekeeper Modal */}
