@@ -121,15 +121,17 @@ export async function testSupabaseConnection() {
 // SUPABASE DATA API FUNCTIONS
 // ==========================================================================
 
-export async function fetchAllFromSupabase() {
+export async function fetchAllFromSupabase(targetFundId = null, currentUser = null) {
   const sb = getSupabase();
   if (!sb) return null;
 
   try {
+    const userEmail = currentUser?.email ? currentUser.email.toLowerCase().trim() : null;
+    const userId = currentUser?.id || null;
+
     // Fetch all tables concurrently using Promise.allSettled
-    // This guarantees that one table failure or empty table NEVER stops other tables from loading
     const [fundRes, membersRes, txRes, holdingsRes, incomesRes, soloAssetsRes] = await Promise.allSettled([
-      sb.from('funds').select('*').limit(1),
+      sb.from('funds').select('*'),
       sb.from('members').select('*'),
       sb.from('transactions').select('*'),
       sb.from('holdings').select('*'),
@@ -137,27 +139,90 @@ export async function fetchAllFromSupabase() {
       sb.from('personal_solo_assets').select('*')
     ]);
 
-    // 1. Fund Info
-    let fundsData = fundRes.status === 'fulfilled' && !fundRes.value.error ? fundRes.value.data : [];
-    let fund = fundsData && fundsData.length > 0 ? fundsData[0] : null;
+    const allFunds = fundRes.status === 'fulfilled' && !fundRes.value.error ? (fundRes.value.data || []) : [];
+    const allMembers = membersRes.status === 'fulfilled' && !membersRes.value.error ? (membersRes.value.data || []) : [];
+    const allTx = txRes.status === 'fulfilled' && !txRes.value.error ? (txRes.value.data || []) : [];
+    const allHoldings = holdingsRes.status === 'fulfilled' && !holdingsRes.value.error ? (holdingsRes.value.data || []) : [];
+    const allIncomes = incomesRes.status === 'fulfilled' && !incomesRes.value.error ? (incomesRes.value.data || []) : [];
+    const allSoloAssets = soloAssetsRes.status === 'fulfilled' && !soloAssetsRes.value.error ? (soloAssetsRes.value.data || []) : [];
 
-    // Auto-create initial fund row in Supabase if table is completely empty
-    if (!fund) {
+    // Filter accessible funds for this user
+    let accessibleFunds = [];
+
+    if (!userEmail || userEmail === 'milan@localhost' || userEmail === 'dev@localhost') {
+      // Local development or unauthenticated: access all available funds
+      accessibleFunds = allFunds;
+    } else {
+      // Authenticated with email:
+      // 1. Funds where user is manager/owner
+      // 2. Funds where user's email is linked in members table
+      accessibleFunds = allFunds.filter(f => {
+        const ownerEmail = (f.owner_email || '').toLowerCase().trim();
+        if (ownerEmail && ownerEmail === userEmail) return true;
+        if (f.owner_id && userId && f.owner_id === userId) return true;
+        
+        // Milan claim on legacy unassigned fund
+        if (!f.owner_email && !f.owner_id && userEmail === 'milanchetry21@gmail.com') return true;
+
+        // Check if user is linked by email as an investor in this fund's members
+        const isLinkedMember = allMembers.some(m => 
+          m.fund_id === f.id && m.email && m.email.toLowerCase().trim() === userEmail
+        );
+        if (isLinkedMember) return true;
+
+        return false;
+      });
+    }
+
+    // Auto-create a clean, private fund profile for new users with no accessible funds
+    if (accessibleFunds.length === 0 && userEmail && userEmail !== 'milanchetry21@gmail.com') {
       try {
-        const { data: newFund } = await sb.from('funds').insert([{
-          name: 'Apex Growth Syndicate',
-          manager_name: 'Milan',
+        const userName = currentUser?.user_metadata?.full_name || userEmail.split('@')[0] || 'Manager';
+        const newFundPayload = {
+          name: `${userName}'s Syndicate Pool`,
+          manager_name: userName,
           initial_nav: 100.0,
           currency: 'INR'
-        }]).select().single();
-        if (newFund) fund = newFund;
-      } catch (insertErr) {
-        console.warn('Could not auto-insert default fund:', insertErr);
+        };
+
+        // Add owner columns if supported
+        if (allFunds.length > 0 && 'owner_email' in allFunds[0]) {
+          newFundPayload.owner_email = userEmail;
+          if (userId) newFundPayload.owner_id = userId;
+        }
+
+        const { data: createdFund } = await sb.from('funds').insert([newFundPayload]).select().single();
+        if (createdFund) {
+          accessibleFunds = [createdFund];
+          allFunds.push(createdFund);
+
+          // Add user as Self/Manager member
+          const { data: createdMem } = await sb.from('members').insert([{
+            fund_id: createdFund.id,
+            name: userName,
+            relationship: 'self',
+            role: 'Manager',
+            email: userEmail
+          }]).select().single();
+          if (createdMem) allMembers.push(createdMem);
+        }
+      } catch (err) {
+        console.warn('Could not auto-create personal fund for new user:', err);
       }
     }
 
-    // 2. Members
-    const rawMembers = membersRes.status === 'fulfilled' && !membersRes.value.error ? (membersRes.value.data || []) : [];
+    // Determine active fund
+    let fund = null;
+    if (targetFundId) {
+      fund = accessibleFunds.find(f => f.id === targetFundId) || accessibleFunds[0];
+    } else {
+      fund = accessibleFunds[0] || allFunds[0] || null;
+    }
+
+    const activeFundId = fund?.id || null;
+
+    // Filter members strictly by active fund
+    const rawMembers = allMembers.filter(m => !activeFundId || m.fund_id === activeFundId);
     const members = rawMembers.map(m => ({
       id: m.id,
       name: m.name || 'Member',
@@ -167,8 +232,8 @@ export async function fetchAllFromSupabase() {
       notes: m.notes || m.note || '',
     }));
 
-    // 3. Transactions (Defensively handle event_date vs date, snake_case vs camelCase)
-    const rawTx = txRes.status === 'fulfilled' && !txRes.value.error ? (txRes.value.data || []) : [];
+    // Filter transactions strictly by active fund
+    const rawTx = allTx.filter(t => !activeFundId || t.fund_id === activeFundId);
     const sortedTx = [...rawTx].sort((a, b) => {
       const dateA = a.event_date || a.date || a.created_at || '1970-01-01';
       const dateB = b.event_date || b.date || b.created_at || '1970-01-01';
@@ -184,7 +249,6 @@ export async function fetchAllFromSupabase() {
       const memberIdVal = t.member_id || t.memberId || t.participant_id || null;
       const noteVal = t.note || t.memo || t.description || '';
 
-      // Try to resolve memberName if missing
       let memberNameVal = t.member_name || t.memberName || null;
       if (!memberNameVal && memberIdVal) {
         const foundMem = members.find(m => m.id === memberIdVal || String(m.id).toLowerCase() === String(memberIdVal).toLowerCase());
@@ -192,9 +256,7 @@ export async function fetchAllFromSupabase() {
       }
       if (!memberIdVal && noteVal) {
         const foundByNote = members.find(m => noteVal.toLowerCase().includes(m.name.toLowerCase()));
-        if (foundByNote) {
-          memberNameVal = foundByNote.name;
-        }
+        if (foundByNote) memberNameVal = foundByNote.name;
       }
 
       return {
@@ -210,8 +272,8 @@ export async function fetchAllFromSupabase() {
       };
     });
 
-    // 4. Holdings (Defensively handle snake_case vs camelCase and units)
-    const rawHoldings = holdingsRes.status === 'fulfilled' && !holdingsRes.value.error ? (holdingsRes.value.data || []) : [];
+    // Filter holdings strictly by active fund
+    const rawHoldings = allHoldings.filter(h => !activeFundId || h.fund_id === activeFundId);
     const holdings = rawHoldings.map(h => {
       let parsedUnits = Number(h.units ?? h.quantity ?? 0);
       if ((!parsedUnits || isNaN(parsedUnits)) && h.notes) {
@@ -231,9 +293,17 @@ export async function fetchAllFromSupabase() {
       };
     });
 
-    // 5. Personal Incomes
-    const rawIncomes = incomesRes.status === 'fulfilled' && !incomesRes.value.error ? (incomesRes.value.data || []) : [];
-    const monthlyIncome = rawIncomes.map(i => ({
+    // Filter Personal Finances strictly by current user
+    // Personal salary and solo assets are NEVER shared with other users
+    const filteredIncomes = allIncomes.filter(i => {
+      if (!userEmail) return true;
+      if (i.user_email) return i.user_email.toLowerCase().trim() === userEmail;
+      if (i.user_id && userId) return i.user_id === userId;
+      // Legacy unassigned incomes belong to Milan / local dev
+      return userEmail === 'milanchetry21@gmail.com' || userEmail === 'milan@localhost';
+    });
+
+    const monthlyIncome = filteredIncomes.map(i => ({
       id: i.id,
       source: i.source || i.name || 'Income Source',
       category: i.category || 'Salary',
@@ -242,9 +312,14 @@ export async function fetchAllFromSupabase() {
       date: i.event_date || i.date || (i.created_at ? i.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
     }));
 
-    // 6. Personal Solo Assets
-    const rawSoloAssets = soloAssetsRes.status === 'fulfilled' && !soloAssetsRes.value.error ? (soloAssetsRes.value.data || []) : [];
-    const personalSoloAssets = rawSoloAssets.map(a => ({
+    const filteredSoloAssets = allSoloAssets.filter(a => {
+      if (!userEmail) return true;
+      if (a.user_email) return a.user_email.toLowerCase().trim() === userEmail;
+      if (a.user_id && userId) return a.user_id === userId;
+      return userEmail === 'milanchetry21@gmail.com' || userEmail === 'milan@localhost';
+    });
+
+    const personalSoloAssets = filteredSoloAssets.map(a => ({
       id: a.id,
       name: a.name || 'Personal Asset',
       category: a.category || 'Fixed Deposit',
@@ -253,15 +328,18 @@ export async function fetchAllFromSupabase() {
     }));
 
     return {
+      availableFunds: accessibleFunds.map(f => ({ id: f.id, name: f.name || 'Syndicate Pool', managerName: f.manager_name })),
       fundInfo: fund ? {
         id: fund.id,
-        name: fund.name,
-        managerName: fund.manager_name || fund.managerName || 'Milan',
+        name: fund.name || 'Syndicate Pool',
+        managerName: fund.manager_name || fund.managerName || 'Manager',
         initialNav: Number(fund.initial_nav || fund.initialNav || 100.0),
         currency: fund.currency || 'INR',
+        ownerEmail: fund.owner_email || null,
+        ownerId: fund.owner_id || null,
       } : {
-        name: 'Apex Growth Syndicate',
-        managerName: 'Milan',
+        name: 'Syndicate Pool',
+        managerName: 'Manager',
         initialNav: 100.0,
         currency: 'INR'
       },
@@ -460,7 +538,7 @@ export async function deleteHoldingFromSupabase(id) {
   await sb.from('holdings').delete().eq('id', id);
 }
 
-export async function insertIncomeToSupabase(income) {
+export async function insertIncomeToSupabase(income, currentUser = null) {
   const sb = getSupabase();
   if (!sb) return null;
 
@@ -472,8 +550,16 @@ export async function insertIncomeToSupabase(income) {
     amount: Number(income.amount) || 0,
     event_date: rawDate,
   };
+  if (currentUser?.email) payload1.user_email = currentUser.email.toLowerCase().trim();
+  if (currentUser?.id) payload1.user_id = currentUser.id;
 
   let res = await sb.from('personal_incomes').insert([payload1]).select().single();
+  if (res.error && (res.error.message?.includes('user_email') || res.error.message?.includes('user_id'))) {
+    delete payload1.user_email;
+    delete payload1.user_id;
+    res = await sb.from('personal_incomes').insert([payload1]).select().single();
+  }
+
   if (res.error && res.error.message && (res.error.message.includes('event_date') || res.error.code === '42703')) {
     const payload2 = {
       source: income.source,
@@ -482,7 +568,14 @@ export async function insertIncomeToSupabase(income) {
       amount: Number(income.amount) || 0,
       date: rawDate,
     };
+    if (currentUser?.email) payload2.user_email = currentUser.email.toLowerCase().trim();
+    if (currentUser?.id) payload2.user_id = currentUser.id;
     res = await sb.from('personal_incomes').insert([payload2]).select().single();
+    if (res.error && (res.error.message?.includes('user_email') || res.error.message?.includes('user_id'))) {
+      delete payload2.user_email;
+      delete payload2.user_id;
+      res = await sb.from('personal_incomes').insert([payload2]).select().single();
+    }
   }
 
   if (res.error) throw res.error;
@@ -495,19 +588,28 @@ export async function deleteIncomeFromSupabase(id) {
   await sb.from('personal_incomes').delete().eq('id', id);
 }
 
-export async function insertSoloAssetToSupabase(asset) {
+export async function insertSoloAssetToSupabase(asset, currentUser = null) {
   const sb = getSupabase();
   if (!sb) return null;
 
-  const { data, error } = await sb.from('personal_solo_assets').insert([{
+  const payload = {
     name: asset.name,
     category: asset.category,
     value: Number(asset.value) || 0,
     institution: asset.institution || null,
-  }]).select().single();
+  };
+  if (currentUser?.email) payload.user_email = currentUser.email.toLowerCase().trim();
+  if (currentUser?.id) payload.user_id = currentUser.id;
 
-  if (error) throw error;
-  return data;
+  let res = await sb.from('personal_solo_assets').insert([payload]).select().single();
+  if (res.error && (res.error.message?.includes('user_email') || res.error.message?.includes('user_id'))) {
+    delete payload.user_email;
+    delete payload.user_id;
+    res = await sb.from('personal_solo_assets').insert([payload]).select().single();
+  }
+
+  if (res.error) throw res.error;
+  return res.data;
 }
 
 export async function deleteSoloAssetFromSupabase(id) {

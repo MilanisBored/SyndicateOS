@@ -52,10 +52,21 @@ export default function App() {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   };
 
+  const isLocalDev = typeof window !== 'undefined' && (
+    window.location.hostname === 'localhost' || 
+    window.location.hostname === '127.0.0.1' ||
+    window.location.hostname.endsWith('.local')
+  );
+
   // View & Auth Gateway State: 'landing' | 'auth' | 'app'
-  const [viewMode, setViewMode] = useState('landing');
-  const [session, setSession] = useState(null);
-  const [isAuthChecking, setIsAuthChecking] = useState(true);
+  // On local development, bypass auth and jump directly to terminal
+  const [viewMode, setViewMode] = useState(() => (isLocalDev ? 'app' : 'landing'));
+  const [session, setSession] = useState(() => (
+    isLocalDev 
+      ? { user: { email: 'milan@localhost', user_metadata: { full_name: 'Milan (Local Dev)' } } } 
+      : null
+  ));
+  const [isAuthChecking, setIsAuthChecking] = useState(!isLocalDev);
   const [isGuestMode, setIsGuestMode] = useState(false);
 
   useEffect(() => {
@@ -64,9 +75,14 @@ export default function App() {
     async function initAuth() {
       try {
         const currentSession = await getAuthSession();
-        if (isMounted && currentSession) {
-          setSession(currentSession);
-          setViewMode('app');
+        if (isMounted) {
+          if (currentSession) {
+            setSession(currentSession);
+            setViewMode('app');
+          } else if (isLocalDev) {
+            setSession({ user: { email: 'milan@localhost', user_metadata: { full_name: 'Milan (Local Dev)' } } });
+            setViewMode('app');
+          }
         }
       } catch (err) {
         console.error('Session check error:', err);
@@ -79,14 +95,17 @@ export default function App() {
 
     const { data: authListener } = onAuthChange((event, newSession) => {
       if (isMounted) {
-        setSession(newSession);
         if (newSession) {
+          setSession(newSession);
           setIsGuestMode(false);
           setViewMode('app');
           // Clean up URL hash after Google OAuth redirect
           if (window.location.hash && window.location.hash.includes('access_token')) {
             window.history.replaceState(null, document.title, window.location.pathname + window.location.search);
           }
+        } else if (isLocalDev) {
+          setSession({ user: { email: 'milan@localhost', user_metadata: { full_name: 'Milan (Local Dev)' } } });
+          setViewMode('app');
         }
       }
     });
@@ -95,7 +114,7 @@ export default function App() {
       isMounted = false;
       authListener?.subscription?.unsubscribe();
     };
-  }, []);
+  }, [isLocalDev]);
 
   const handleSignOut = async () => {
     try {
@@ -103,9 +122,14 @@ export default function App() {
     } catch (e) {
       console.error('Sign out error:', e);
     }
-    setSession(null);
-    setIsGuestMode(false);
-    setViewMode('landing');
+    if (isLocalDev) {
+      // On local dev, toggle between landing and app freely
+      setViewMode('landing');
+    } else {
+      setSession(null);
+      setIsGuestMode(false);
+      setViewMode('landing');
+    }
   };
 
   const isConnectedToCloud = isSupabaseConfigured();
@@ -134,22 +158,27 @@ export default function App() {
     return INITIAL_DEMO_DATA;
   });
 
-  // Supabase Fetcher (Direct from Database, no mock fallback)
-  const refreshFromSupabase = useCallback(async () => {
+  const [availableFunds, setAvailableFunds] = useState([]);
+
+  // Supabase Fetcher (Multi-tenant: scoped to current user session)
+  const refreshFromSupabase = useCallback(async (targetFundId = null) => {
     if (!isSupabaseConfigured()) return;
 
     setIsLoadingCloud(true);
     setCloudError('');
 
     try {
-      const cloudData = await fetchAllFromSupabase();
+      const cloudData = await fetchAllFromSupabase(targetFundId, session?.user);
       if (cloudData) {
+        if (cloudData.availableFunds) {
+          setAvailableFunds(cloudData.availableFunds);
+        }
         setAppState({
-          fundInfo: cloudData.fundInfo || { name: 'Syndicate Fund', managerName: 'Milan', initialNav: 100, currency: 'INR' },
-          members: cloudData.members, // EXACTLY from DB
-          transactions: cloudData.transactions, // EXACTLY from DB
-          holdings: cloudData.holdings, // EXACTLY from DB
-          personalFinances: cloudData.personalFinances, // EXACTLY from DB
+          fundInfo: cloudData.fundInfo || { name: 'Syndicate Pool', managerName: 'Manager', initialNav: 100, currency: 'INR' },
+          members: cloudData.members, // Filtered strictly to active pool
+          transactions: cloudData.transactions, // Filtered strictly to active pool
+          holdings: cloudData.holdings, // Filtered strictly to active pool
+          personalFinances: cloudData.personalFinances, // Filtered strictly to current user
         });
 
         if (cloudData.fundInfo?.currency) {
@@ -162,13 +191,13 @@ export default function App() {
     } finally {
       setIsLoadingCloud(false);
     }
-  }, []);
+  }, [session]);
 
   useEffect(() => {
     if (isConnectedToCloud) {
-      refreshFromSupabase();
+      refreshFromSupabase(appState.fundInfo?.id);
     }
-  }, [isConnectedToCloud, refreshFromSupabase]);
+  }, [isConnectedToCloud, refreshFromSupabase, session]);
 
   // Persist locally if offline or local mode
   useEffect(() => {
@@ -250,7 +279,7 @@ export default function App() {
     let resolved = newInc;
     if (isConnectedToCloud) {
       try {
-        const inserted = await insertIncomeToSupabase(newInc);
+        const inserted = await insertIncomeToSupabase(newInc, session?.user);
         if (inserted) resolved = { ...newInc, id: inserted.id };
       } catch (err) {
         console.error('Failed to save income to Supabase:', err);
@@ -287,7 +316,7 @@ export default function App() {
     let resolved = newAst;
     if (isConnectedToCloud) {
       try {
-        const inserted = await insertSoloAssetToSupabase(newAst);
+        const inserted = await insertSoloAssetToSupabase(newAst, session?.user);
         if (inserted) resolved = { ...newAst, id: inserted.id };
       } catch (err) {
         console.error('Failed to save solo asset to Supabase:', err);
@@ -435,20 +464,20 @@ export default function App() {
     );
   }
 
-  // 2. Landing Page (Default first screen if not logged in)
-  if (!session && viewMode === 'landing') {
+  // 2. Landing Page (Shown when viewMode is 'landing')
+  if (viewMode === 'landing') {
     return (
       <LandingPage
-        onLaunchTerminal={() => setViewMode('auth')}
+        onLaunchTerminal={() => setViewMode(isLocalDev ? 'app' : (session ? 'app' : 'auth'))}
         theme={theme}
         toggleTheme={toggleTheme}
-        isAuthenticated={Boolean(session)}
+        isAuthenticated={Boolean(session || isLocalDev)}
       />
     );
   }
 
-  // 3. Auth Gateway Login/Register Guard
-  if (!session && viewMode === 'auth') {
+  // 3. Auth Gateway Login/Register Guard (Bypassed entirely on local dev)
+  if (!session && !isLocalDev && viewMode === 'auth') {
     return (
       <AuthGateway
         onAuthenticated={(user) => {
@@ -479,6 +508,8 @@ export default function App() {
         onSignOut={handleSignOut}
         isGuest={isGuestMode}
         onOpenLanding={() => setViewMode('landing')}
+        availableFunds={availableFunds}
+        onSwitchFund={(fId) => refreshFromSupabase(fId)}
       />
 
       {cloudError && (
