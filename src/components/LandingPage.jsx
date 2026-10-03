@@ -36,10 +36,9 @@ export default function LandingPage({
             backgroundColor: '#22c55e',
           }} />
           <span style={{
-            fontSize: '14px',
+            fontSize: '15px',
             fontWeight: 600,
             letterSpacing: '-0.02em',
-            fontFamily: 'var(--font-mono)',
           }}>
             SyndicateOS
           </span>
@@ -83,28 +82,30 @@ export default function LandingPage({
           letterSpacing: '0.05em',
           marginBottom: '16px',
         }}>
-          Institutional Wealth & Ledger
+          Shared Investment Tracker
         </div>
 
+        {/* 3 Simple Words Headline */}
         <h1 style={{
-          fontSize: 'clamp(28px, 4.5vw, 42px)',
+          fontSize: 'clamp(32px, 5vw, 44px)',
           fontWeight: 600,
           letterSpacing: '-0.03em',
           lineHeight: 1.2,
           margin: '0 0 16px 0',
           color: 'var(--text-primary)',
         }}>
-          Unitized Capital Ledger.
+          Invest Together Fairly.
         </h1>
 
+        {/* Simple Plain-English Explanation */}
         <p style={{
-          fontSize: '14px',
+          fontSize: '15px',
           color: 'var(--text-secondary)',
           lineHeight: 1.6,
           margin: '0 auto 32px auto',
           maxWidth: '520px',
         }}>
-          Track pooled capital with partner accounts at exact Net Asset Value (NAV). Mark-to-market mutual fund pricing via official AMFI feeds with zero dilution.
+          Track investments you make with your partner or friends. Clearly see who owns what, track real-time profits, and make sure everyone gets their fair share.
         </p>
 
         {/* Action Buttons */}
@@ -120,12 +121,12 @@ export default function LandingPage({
             onClick={onLaunchTerminal}
             className="btn btn-primary"
             style={{
-              padding: '8px 20px',
+              padding: '9px 22px',
               fontSize: '13px',
               fontWeight: 500,
             }}
           >
-            {isAuthenticated ? 'Open Terminal →' : 'Sign In / Register →'}
+            {isAuthenticated ? 'Open Dashboard →' : 'Sign In / Register →'}
           </button>
 
           <button
@@ -133,15 +134,15 @@ export default function LandingPage({
             onClick={onGuestAccess}
             className="btn btn-secondary"
             style={{
-              padding: '8px 18px',
+              padding: '9px 18px',
               fontSize: '13px',
             }}
           >
-            Demo Mode ⚡
+            Try Demo Mode ⚡
           </button>
         </div>
 
-        {/* Minimal Spec Strip */}
+        {/* Simple 3-Box Explanation */}
         <div style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(3, 1fr)',
@@ -154,37 +155,37 @@ export default function LandingPage({
         }}>
           <div>
             <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', textTransform: 'uppercase' }}>
-              Ledger Engine
+              Fair Shares
             </div>
-            <div style={{ fontSize: '12px', fontWeight: 500, marginTop: '2px', color: 'var(--text-primary)' }}>
-              Unitized NAV
+            <div style={{ fontSize: '13px', fontWeight: 500, marginTop: '2px', color: 'var(--text-primary)' }}>
+              100% Transparent
             </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-              Anti-dilution entries & exits
-            </div>
-          </div>
-
-          <div>
-            <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', textTransform: 'uppercase' }}>
-              Market Pricing
-            </div>
-            <div style={{ fontSize: '12px', fontWeight: 500, marginTop: '2px', color: 'var(--text-primary)' }}>
-              AMFI Live Feed
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-              Official closing NAV sync
+            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '3px', lineHeight: 1.4 }}>
+              Know exactly who owns what, even if you invest at different times.
             </div>
           </div>
 
           <div>
             <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', textTransform: 'uppercase' }}>
-              Cloud & Storage
+              Live Prices
             </div>
-            <div style={{ fontSize: '12px', fontWeight: 500, marginTop: '2px', color: 'var(--text-primary)' }}>
-              Supabase Postgres
+            <div style={{ fontSize: '13px', fontWeight: 500, marginTop: '2px', color: 'var(--text-primary)' }}>
+              Auto Updates
             </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-              Encrypted session sync
+            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '3px', lineHeight: 1.4 }}>
+              Mutual fund prices update daily so you always see your real profit.
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', textTransform: 'uppercase' }}>
+              Private & Safe
+            </div>
+            <div style={{ fontSize: '13px', fontWeight: 500, marginTop: '2px', color: 'var(--text-primary)' }}>
+              Keep Separate
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '3px', lineHeight: 1.4 }}>
+              Keep your personal salary and savings separate from shared money.
             </div>
           </div>
         </div>
@@ -195,12 +196,11 @@ export default function LandingPage({
         textAlign: 'center',
         fontSize: '11px',
         color: 'var(--text-muted)',
-        fontFamily: 'var(--font-mono)',
         width: '100%',
         maxWidth: '800px',
         margin: '0 auto',
       }}>
-        SyndicateOS • MIT License • Zero Tracking
+        SyndicateOS • Built for partners & friends to invest together
       </footer>
     </div>
   );
