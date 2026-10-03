@@ -12,15 +12,27 @@ export function cleanSupabaseKey(input) {
   return input.trim().replace(/[`'"\s]/g, '');
 }
 
-// Retrieve credentials from .env or localStorage
-export function getSupabaseCredentials() {
-  const envUrl = import.meta.env.VITE_SUPABASE_URL;
-  const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-  const localUrl = localStorage.getItem('syndicate_sb_url');
-  const localKey = localStorage.getItem('syndicate_sb_key');
+const DEFAULT_SUPABASE_URL = 'https://bncqjgflhilmmhousnkr.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJuY3FqZ2ZsaGlsbW1ob3VzbmtyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA5NjIwMjgsImV4cCI6MjEwNjUzODAyOH0.MzHwp7QLjkKZQqM1g8qYPvZv9Jwj-r3hMXQg4412Vpc';
 
-  const rawUrl = (envUrl && envUrl !== 'YOUR_SUPABASE_URL' && envUrl.trim() !== '') ? envUrl : (localUrl || '');
-  const rawKey = (envKey && envKey !== 'YOUR_SUPABASE_ANON_KEY' && envKey.trim() !== '') ? envKey : (localKey || '');
+// Retrieve credentials from .env, localStorage, or fallback
+export function getSupabaseCredentials() {
+  const envUrl = import.meta.env?.VITE_SUPABASE_URL;
+  const envKey = import.meta.env?.VITE_SUPABASE_ANON_KEY;
+  const localUrl = typeof localStorage !== 'undefined' ? localStorage.getItem('syndicate_sb_url') : null;
+  const localKey = typeof localStorage !== 'undefined' ? localStorage.getItem('syndicate_sb_key') : null;
+
+  const rawUrl = (localUrl && localUrl.trim() !== '') 
+    ? localUrl 
+    : (envUrl && envUrl !== 'YOUR_SUPABASE_URL' && envUrl.trim() !== '') 
+    ? envUrl 
+    : DEFAULT_SUPABASE_URL;
+
+  const rawKey = (localKey && localKey.trim() !== '') 
+    ? localKey 
+    : (envKey && envKey !== 'YOUR_SUPABASE_ANON_KEY' && envKey.trim() !== '') 
+    ? envKey 
+    : DEFAULT_SUPABASE_ANON_KEY;
 
   const url = cleanSupabaseUrl(rawUrl);
   const key = cleanSupabaseKey(rawKey);

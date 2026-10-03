@@ -261,7 +261,9 @@ export default function AuthGateway({ onAuthenticated, onGuestAccess, onBackToLa
                 onClick={() => {
                   if (keyInput.trim()) {
                     localStorage.setItem('syndicate_sb_key', keyInput.trim());
-                    setIsConfigured(isSupabaseConfigured());
+                    localStorage.setItem('syndicate_sb_url', 'https://bncqjgflhilmmhousnkr.supabase.co');
+                    setIsConfigured(true);
+                    setErrorMsg('');
                     setSuccessMsg('Supabase API key saved. You can now authenticate.');
                   }
                 }}
