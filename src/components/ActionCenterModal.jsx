@@ -11,6 +11,9 @@ export default function ActionCenterModal({
   currency,
   perspective = 'manager',
   currentUser,
+  pendingInvitations = [],
+  onAcceptInvitation,
+  onDeclineInvitation,
   onConfirmTransaction,
   onOpenTransactionModal
 }) {
@@ -28,6 +31,22 @@ export default function ActionCenterModal({
     (userEmail && m.email && m.email.toLowerCase().trim() === userEmail) ||
     m.id === fundInfo?.myMemberId
   ) || members[0];
+
+  // Outgoing invitations sent by manager that are awaiting friend acceptance
+  const outgoingPendingMembers = !isInvestor
+    ? members.filter(m => m.status === 'invited')
+    : [];
+
+  const handleCopyInviteLink = (member) => {
+    const inviteUrl = window.location.origin;
+    const msg = `Hey ${member.name}! I've invited you to join our syndicate on SyndicateOS. Open this link to sign in with your email (${member.email}) and connect: ${inviteUrl}`;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(msg);
+      alert(`Invitation message copied to clipboard! Send this to ${member.name} via WhatsApp or Email.`);
+    } else {
+      prompt('Copy this invitation message:', msg);
+    }
+  };
 
   // Filter transactions based on perspective
   const userTransactions = isInvestor && currentMember
@@ -138,7 +157,7 @@ export default function ActionCenterModal({
             style={{ fontSize: 11, padding: '3px 9px' }}
             onClick={() => setActiveTab('pending')}
           >
-            PENDING ({pendingItems.length})
+            PENDING ({pendingItems.length + pendingInvitations.length + outgoingPendingMembers.length})
           </button>
           <button
             type="button"
@@ -158,13 +177,100 @@ export default function ActionCenterModal({
           </button>
         </div>
 
-        {/* Tab 1: Pending Approvals */}
+        {/* Tab 1: Pending Approvals & Invitations */}
         {activeTab === 'pending' && (
-          <div className="flex flex-col gap-2">
-            {pendingItems.length === 0 ? (
+          <div className="flex flex-col gap-3">
+            {/* 1. Incoming Syndicate Invitations Awaiting Handshake */}
+            {pendingInvitations.length > 0 && (
+              <div className="mb-2">
+                <span className="text-xs font-semibold mono text-amber block mb-2 flex items-center gap-1">
+                  <span>📩 SYNDICATE INVITATIONS AWAITING ACCEPTANCE ({pendingInvitations.length})</span>
+                </span>
+                {pendingInvitations.map((inv) => (
+                  <div 
+                    key={inv.memberId}
+                    className="card p-3 mb-2"
+                    style={{ background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.35)' }}
+                  >
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="badge badge-warning mono text-xs font-semibold" style={{ fontSize: 9 }}>
+                            NEW INVITATION
+                          </span>
+                          <span className="text-xs text-muted mono">{inv.date ? inv.date.split('T')[0] : 'Recent'}</span>
+                        </div>
+                        <span className="font-semibold text-sm block mt-1">
+                          {inv.fundName || 'Syndicate Pool'}
+                        </span>
+                        <span className="text-xs text-muted block">
+                          Manager: <strong>{inv.managerName || 'Fund Manager'}</strong> • Currency: {inv.currency || 'INR'}
+                        </span>
+                        <span className="text-xs text-secondary block mt-1">
+                          You were invited as a participating investor. Review terms and connect to access unitized NAV and equity.
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 justify-end pt-2" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm mono"
+                        style={{ fontSize: 11, padding: '3px 10px' }}
+                        onClick={() => onDeclineInvitation(inv)}
+                      >
+                        Decline
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm mono"
+                        style={{ fontSize: 11, padding: '3px 14px' }}
+                        onClick={() => onAcceptInvitation(inv)}
+                      >
+                        ✓ Accept & Connect
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* 2. Outgoing Invitations Sent by Manager */}
+            {outgoingPendingMembers.length > 0 && (
+              <div className="mb-2">
+                <span className="text-xs font-semibold mono text-secondary block mb-2">
+                  ⏳ OUTGOING INVITATIONS PENDING FRIEND ACCEPTANCE ({outgoingPendingMembers.length})
+                </span>
+                {outgoingPendingMembers.map((m) => (
+                  <div 
+                    key={m.id}
+                    className="card p-3 mb-2 flex justify-between items-center"
+                    style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border-color)' }}
+                  >
+                    <div>
+                      <span className="font-semibold text-xs block text-primary">{m.name}</span>
+                      <span className="text-xs text-muted mono">{m.email || 'No email specified'}</span>
+                      <span className="badge badge-neutral mono mt-1 block" style={{ fontSize: 9, width: 'fit-content' }}>
+                        Awaiting friend to log in & accept
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm mono"
+                      style={{ fontSize: 10, padding: '3px 8px' }}
+                      onClick={() => handleCopyInviteLink(m)}
+                    >
+                      📋 Copy Invite Link
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* 3. Pending Transaction Verifications */}
+            {pendingItems.length === 0 && pendingInvitations.length === 0 && outgoingPendingMembers.length === 0 ? (
               <div className="p-4 text-center text-muted card text-xs" style={{ background: 'var(--bg-subtle)' }}>
                 <span className="mono font-semibold block text-sm mb-1 text-primary">✓ ALL CLEAR</span>
-                No pending transfer verifications or approvals awaiting review in this syndicate.
+                No pending transfer verifications, approvals, or invitations awaiting review.
               </div>
             ) : (
               pendingItems.map((tx) => (

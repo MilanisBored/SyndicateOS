@@ -634,10 +634,12 @@ export default function App() {
     (userEmail && m.email && m.email.toLowerCase().trim() === userEmail) ||
     m.id === appState.fundInfo?.myMemberId
   );
-  const isInvestorUser = effectivePerspective === 'investor' || appState.fundInfo?.userRole === 'investor';
-  const pendingActionsCount = isInvestorUser && myMember
+  const pendingTxsCount = isInvestorUser && myMember
     ? appState.transactions.filter(t => (t.memberId === myMember.id || t.isMyTx) && t.status === 'pending').length
     : appState.transactions.filter(t => t.status === 'pending').length;
+  const pendingInvitesCount = pendingInvitations?.length || 0;
+  const pendingActionsCount = pendingTxsCount + pendingInvitesCount;
+
   const disputedActionsCount = isInvestorUser && myMember
     ? appState.transactions.filter(t => (t.memberId === myMember.id || t.isMyTx) && t.status === 'disputed').length
     : appState.transactions.filter(t => t.status === 'disputed').length;
@@ -674,6 +676,34 @@ export default function App() {
         availableFunds={availableFunds}
         onSwitchFund={(fId) => refreshFromSupabase(fId)}
       />
+
+      {/* Pending Invitation Alert Banner */}
+      {pendingInvitations && pendingInvitations.length > 0 && (
+        <div 
+          className="p-3 mx-4 mt-3 card flex items-center justify-between text-xs"
+          style={{ 
+            background: 'linear-gradient(90deg, rgba(245, 158, 11, 0.15) 0%, rgba(245, 158, 11, 0.05) 100%)', 
+            border: '1px solid rgba(245, 158, 11, 0.4)' 
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <span className="badge badge-warning mono font-semibold" style={{ fontSize: 10 }}>
+              ACTION REQUIRED
+            </span>
+            <span>
+              You have <strong>{pendingInvitations.length} pending syndicate invitation{pendingInvitations.length > 1 ? 's' : ''}</strong> from <strong>{pendingInvitations[0].managerName}</strong> to join <strong>{pendingInvitations[0].fundName}</strong>.
+            </span>
+          </div>
+          <button 
+            type="button" 
+            className="btn btn-primary btn-sm mono" 
+            style={{ fontSize: 11, padding: '3px 12px' }}
+            onClick={() => setIsActionCenterOpen(true)}
+          >
+            Review & Connect →
+          </button>
+        </div>
+      )}
 
       {cloudError && (
         <div 
@@ -830,6 +860,15 @@ export default function App() {
           currency={currency}
           perspective={effectivePerspective}
           currentUser={session?.user}
+          pendingInvitations={pendingInvitations}
+          onAcceptInvitation={async (inv) => {
+            await handleAcceptInvitation(inv);
+            setIsActionCenterOpen(false);
+          }}
+          onDeclineInvitation={async (inv) => {
+            await handleDeclineInvitation(inv);
+            setIsActionCenterOpen(false);
+          }}
           onConfirmTransaction={handleConfirmTransaction}
           onOpenTransactionModal={() => {
             setIsActionCenterOpen(false);

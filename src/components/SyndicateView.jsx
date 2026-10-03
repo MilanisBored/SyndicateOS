@@ -163,6 +163,26 @@ export default function SyndicateView({
                   <span className="badge badge-neutral mono font-semibold">
                     {formatNumber(member.ownershipPct, 1)}%
                   </span>
+                  {isPending && !isInvestor && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm mono"
+                      style={{ padding: '2px 8px', fontSize: 11 }}
+                      title="Copy invitation link & message to send to your friend"
+                      onClick={() => {
+                        const appUrl = window.location.origin;
+                        const msg = `Hey ${member.name}! I've invited you to join my investment syndicate on SyndicateOS. Open this link, sign in with your email (${member.email}), and accept your invite: ${appUrl}`;
+                        if (navigator.clipboard) {
+                          navigator.clipboard.writeText(msg);
+                          alert(`Invite message copied to clipboard! Send this to ${member.name} via WhatsApp or Email.`);
+                        } else {
+                          prompt('Copy this invite message:', msg);
+                        }
+                      }}
+                    >
+                      📋 Copy Invite
+                    </button>
+                  )}
                   {!isInvestor && member.relationship !== 'self' && onDeleteMember && (
                     <button
                       type="button"

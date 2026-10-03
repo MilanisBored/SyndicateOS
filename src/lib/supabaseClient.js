@@ -350,7 +350,9 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
     );
 
     // Read portfolio visibility for the active fund (default 'private')
-    const storedVisibility = fund?.id ? localStorage.getItem(`syndicate_fund_${fund.id}_visibility`) : null;
+    const storedVisibility = (typeof localStorage !== 'undefined' && fund?.id) 
+      ? localStorage.getItem(`syndicate_fund_${fund.id}_visibility`) 
+      : null;
     const portfolioVisibility = fund?.portfolio_visibility || storedVisibility || 'private';
     const isInvestorView = !isCurrentFundOwner;
 
