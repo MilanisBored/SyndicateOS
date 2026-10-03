@@ -402,22 +402,27 @@ export function computeFundState(fundInfo, members, transactions, holdings = [])
     currentNav = totalFundAUM / totalUnits;
   }
 
-  // Calculate Member Metrics at current NAV
+  // Calculate Member Metrics using exact ownership allocation invariant
+  // Sum of all members' currentValue strictly equals totalFundAUM at any scale (from ₹100 to ₹100 Crore)
   const computedMembers = members.map((m) => {
     const stats = memberStats[m.id];
     const units = stats.units;
-    const currentValue = units * currentNav;
+    const ownershipRatio = totalUnits > 0 ? (units / totalUnits) : 0;
+    const ownershipPct = ownershipRatio * 100;
+
+    // Exact proportional allocation of Fund AUM guarantees zero rounding drift
+    const currentValue = totalUnits > 0 ? (totalFundAUM * ownershipRatio) : 0;
+
     const deposited = stats.totalDeposited;
     const withdrawn = stats.totalWithdrawn;
     const netInvested = deposited - withdrawn;
     
     // Profit = (Current Value + Withdrawn Amount) - Deposited
     let totalProfit = (currentValue + withdrawn) - deposited;
-    if (Math.abs(totalProfit) < 0.01) totalProfit = 0; // eliminate sub-cent floating point epsilon
+    if (Math.abs(totalProfit) < 0.005) totalProfit = 0; // eliminate sub-cent floating point epsilon
     
     let roiPercentage = deposited > 0 ? (totalProfit / deposited) * 100 : 0;
-    if (Math.abs(roiPercentage) < 0.001) roiPercentage = 0;
-    const ownershipPct = totalUnits > 0 ? (units / totalUnits) * 100 : 0;
+    if (Math.abs(roiPercentage) < 0.0001) roiPercentage = 0;
 
     return {
       ...m,

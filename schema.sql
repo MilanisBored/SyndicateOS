@@ -55,9 +55,9 @@ CREATE TABLE IF NOT EXISTS transactions (
     fund_id UUID REFERENCES funds(id) ON DELETE CASCADE,
     member_id UUID REFERENCES members(id) ON DELETE SET NULL,
     type TEXT NOT NULL CHECK (type IN ('deposit', 'withdrawal', 'valuation_update')),
-    amount NUMERIC(15, 2) NOT NULL,
-    nav NUMERIC(15, 4) NOT NULL,
-    units NUMERIC(18, 6) NOT NULL DEFAULT 0,
+    amount NUMERIC(20, 2) NOT NULL,
+    nav NUMERIC(20, 6) NOT NULL,
+    units NUMERIC(30, 12) NOT NULL DEFAULT 0,
     note TEXT,
     event_date DATE NOT NULL DEFAULT CURRENT_DATE,
     status TEXT NOT NULL DEFAULT 'verified' CHECK (status IN ('pending', 'verified', 'disputed')),
@@ -66,6 +66,11 @@ CREATE TABLE IF NOT EXISTS transactions (
     verification_notes TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- High-precision column migrations (prevents fractional truncation across large scale capital)
+ALTER TABLE transactions ALTER COLUMN amount TYPE NUMERIC(20, 2);
+ALTER TABLE transactions ALTER COLUMN nav TYPE NUMERIC(20, 6);
+ALTER TABLE transactions ALTER COLUMN units TYPE NUMERIC(30, 12);
 
 -- Ensure verification columns exist
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'verified';
