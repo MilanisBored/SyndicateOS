@@ -1,56 +1,25 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { formatCurrency, formatNumber, CURRENCIES } from '../utils/navEngine';
+import React, { useState, useRef, useEffect } from 'react';
+import { formatCurrency, formatNumber } from '../utils/navEngine';
 import { 
   searchMutualFundsAMFI,
   fetchMutualFundNav,
-  fetchCryptoQuote,
-  fetchGlobalStockQuote,
-  fetchUniversalQuote,
-  syncUniversalHoldingsBatch
+  syncMutualFundHoldingsBatch
 } from '../services/marketDataService';
-import { 
-  convertCurrency, 
-  fetchFxRates, 
-  getExchangeRate 
-} from '../services/fxService';
-
-// Asset Class Grouping Definitions
-const ASSET_CLASSES = [
-  { id: 'ALL', label: 'All Positions', icon: '🌐' },
-  { id: 'STOCKS', label: 'Equities & Stocks', icon: '📈', match: ['stock', 'equit'] },
-  { id: 'MUTUAL_FUNDS', label: 'Mutual Funds / ETFs', icon: '🏛️', match: ['mutual', 'sip', 'etf', 'fund'] },
-  { id: 'CRYPTO', label: 'Crypto & Web3', icon: '🪙', match: ['crypto', 'btc', 'eth', 'token'] },
-  { id: 'FIXED_INCOME', label: 'Fixed Income & Debt', icon: '🔒', match: ['deposit', 'fd', 'bond', 'debt', 'fixed'] },
-  { id: 'REAL_ESTATE', label: 'Real Estate & Private', icon: '🏠', match: ['estate', 'realty', 'private', 'property'] },
-  { id: 'CASH', label: 'Liquid Cash & Reserves', icon: '💵', match: ['cash', 'liquid', 'treasury', 'reserve'] },
-];
-
-function getHoldingClassId(holding) {
-  const cat = (holding.category || '').toLowerCase();
-  for (const ac of ASSET_CLASSES) {
-    if (ac.id === 'ALL') continue;
-    if (ac.match.some(m => cat.includes(m))) return ac.id;
-  }
-  return 'STOCKS';
-}
 
 export default function HoldingsView({ 
-  holdings = [], 
+  holdings, 
   onSaveHolding,
   onDeleteHolding,
-  fundMetrics = {}, 
-  currency = 'INR', 
+  fundMetrics, 
+  currency, 
   fundInfo,
   perspective = 'manager',
   onSyncValuationToNAV 
 }) {
   const isInvestor = perspective === 'investor' || fundInfo?.userRole === 'investor';
   const isPrivateMandate = isInvestor && (fundInfo?.portfolioVisibility === 'private' || !fundInfo?.portfolioVisibility);
-  
   const [isEditing, setIsEditing] = useState(false);
   const [editingAsset, setEditingAsset] = useState(null);
-  const [activeTab, setActiveTab] = useState('ALL');
-  const [fxRates, setFxRates] = useState(null);
 
   // Quick inline price and units update state
   const [inlineEditingId, setInlineEditingId] = useState(null);
@@ -62,7 +31,6 @@ export default function HoldingsView({
   const [name, setName] = useState('');
   const [ticker, setTicker] = useState('');
   const [category, setCategory] = useState('Mutual Funds / ETFs');
-  const [nativeCurrency, setNativeCurrency] = useState(currency || 'INR');
   const [investedAmount, setInvestedAmount] = useState('');
   const [currentValue, setCurrentValue] = useState('');
   const [units, setUnits] = useState('');
@@ -70,26 +38,13 @@ export default function HoldingsView({
   const [isFetchingSingleQuote, setIsFetchingSingleQuote] = useState(false);
   const [singleQuoteStatus, setSingleQuoteStatus] = useState('');
 
-  // Live search suggestions state
+  // Live AMFI search suggestions state
   const [fundSuggestions, setFundSuggestions] = useState([]);
   const [isSearchingFund, setIsSearchingFund] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [latestNavPrice, setLatestNavPrice] = useState(null);
   const searchDebounceRef = useRef(null);
   const autocompleteContainerRef = useRef(null);
-
-  // Batch Sync Live Prices Modal State
-  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
-  const [isBatchSyncing, setIsBatchSyncing] = useState(false);
-  const [batchProgress, setBatchProgress] = useState(null);
-  const [batchSummary, setBatchSummary] = useState(null);
-
-  // Load live FX rates on mount
-  useEffect(() => {
-    fetchFxRates().then(rates => {
-      setFxRates(rates);
-    }).catch(e => console.warn('FX init error:', e));
-  }, []);
 
   // Close suggestions when clicking outside
   useEffect(() => {
@@ -102,58 +57,27 @@ export default function HoldingsView({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Filtered holdings based on active asset tab
-  const filteredHoldings = useMemo(() => {
-    if (activeTab === 'ALL') return holdings;
-    return holdings.filter(h => getHoldingClassId(h) === activeTab);
-  }, [holdings, activeTab]);
+  // Batch Sync Live Prices Modal State
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+  const [isBatchSyncing, setIsBatchSyncing] = useState(false);
+  const [batchProgress, setBatchProgress] = useState(null);
+  const [batchSummary, setBatchSummary] = useState(null);
 
-  // Tab counts
-  const tabCounts = useMemo(() => {
-    const counts = { ALL: holdings.length };
-    ASSET_CLASSES.forEach(ac => {
-      if (ac.id !== 'ALL') {
-        counts[ac.id] = holdings.filter(h => getHoldingClassId(h) === ac.id).length;
-      }
-    });
-    return counts;
-  }, [holdings]);
-
-  // Compute Total Metrics Converted to Fund Base Currency
-  const totalInvested = useMemo(() => {
-    return holdings.reduce((sum, h) => {
-      const raw = Number(h.investedAmount) || 0;
-      const hCur = h.nativeCurrency || h.currency || currency;
-      return sum + convertCurrency(raw, hCur, currency, fxRates);
-    }, 0);
-  }, [holdings, currency, fxRates]);
-
-  const totalHoldingsValue = useMemo(() => {
-    return holdings.reduce((sum, h) => {
-      const raw = Number(h.currentValue) || 0;
-      const hCur = h.nativeCurrency || h.currency || currency;
-      return sum + convertCurrency(raw, hCur, currency, fxRates);
-    }, 0);
-  }, [holdings, currency, fxRates]);
-
+  const totalInvested = holdings.reduce((sum, h) => sum + (Number(h.investedAmount) || 0), 0);
+  const totalHoldingsValue = holdings.reduce((sum, h) => sum + (Number(h.currentValue) || 0), 0);
   const totalHoldingsProfit = totalHoldingsValue - totalInvested;
   const totalHoldingsRoi = totalInvested > 0 ? (totalHoldingsProfit / totalInvested) * 100 : 0;
 
-  // Category breakdown for summary and charts
-  const categoryBreakdown = useMemo(() => {
-    return holdings.reduce((acc, h) => {
-      const cat = h.category || 'Asset Allocation';
-      if (!acc[cat]) {
-        acc[cat] = { category: cat, costBasis: 0, currentValue: 0, count: 0 };
-      }
-      const hCur = h.nativeCurrency || h.currency || currency;
-      acc[cat].costBasis += convertCurrency(Number(h.investedAmount) || 0, hCur, currency, fxRates);
-      acc[cat].currentValue += convertCurrency(Number(h.currentValue) || 0, hCur, currency, fxRates);
-      acc[cat].count += 1;
-      return acc;
-    }, {});
-  }, [holdings, currency, fxRates]);
-
+  const categoryBreakdown = holdings.reduce((acc, h) => {
+    const cat = h.category || 'Asset Allocation';
+    if (!acc[cat]) {
+      acc[cat] = { category: cat, costBasis: 0, currentValue: 0, count: 0 };
+    }
+    acc[cat].costBasis += (Number(h.investedAmount) || 0);
+    acc[cat].currentValue += (Number(h.currentValue) || 0);
+    acc[cat].count += 1;
+    return acc;
+  }, {});
   const categoryList = Object.values(categoryBreakdown);
 
   const handleOpenAdd = () => {
@@ -161,7 +85,6 @@ export default function HoldingsView({
     setName('');
     setTicker('');
     setCategory('Mutual Funds / ETFs');
-    setNativeCurrency(currency || 'INR');
     setInvestedAmount('');
     setCurrentValue('');
     setUnits('');
@@ -178,7 +101,6 @@ export default function HoldingsView({
     setName(ast.name);
     setTicker(ast.ticker);
     setCategory(ast.category);
-    setNativeCurrency(ast.nativeCurrency || ast.currency || currency || 'INR');
     setInvestedAmount(ast.investedAmount);
     setCurrentValue(ast.currentValue);
     setUnits(ast.units || ast.quantity || '');
@@ -205,28 +127,25 @@ export default function HoldingsView({
       return;
     }
 
-    // Live search AMFI if Mutual Fund category or unspecified
-    if (category.toLowerCase().includes('mutual') || category.toLowerCase().includes('sip') || !category) {
-      setIsSearchingFund(true);
-      searchDebounceRef.current = setTimeout(async () => {
-        try {
-          const results = await searchMutualFundsAMFI(trimmed);
-          setFundSuggestions(results);
-          setShowSuggestions(results.length > 0);
-        } catch (err) {
-          console.error('AMFI search error:', err);
-        } finally {
-          setIsSearchingFund(false);
-        }
-      }, 200);
-    }
+    // Live search AMFI as user types
+    setIsSearchingFund(true);
+    searchDebounceRef.current = setTimeout(async () => {
+      try {
+        const results = await searchMutualFundsAMFI(trimmed);
+        setFundSuggestions(results);
+        setShowSuggestions(results.length > 0);
+      } catch (err) {
+        console.error('AMFI search error:', err);
+      } finally {
+        setIsSearchingFund(false);
+      }
+    }, 200);
   };
 
   const handleSelectSuggestion = async (item) => {
     setName(item.schemeName);
     setTicker(String(item.schemeCode));
     setCategory('Mutual Funds / ETFs');
-    setNativeCurrency('INR');
     setFundSuggestions([]);
     setShowSuggestions(false);
 
@@ -236,7 +155,7 @@ export default function HoldingsView({
     try {
       const res = await fetchMutualFundNav(item.schemeCode);
       setLatestNavPrice(res.nav);
-      setSingleQuoteStatus(`Live AMFI NAV: ₹${formatNumber(res.nav, 4)} (Declared: ${res.date})`);
+      setSingleQuoteStatus(`Live AMFI NAV: ${formatCurrency(res.nav, currency, { decimals: 4 })} (Declared: ${res.date})`);
 
       const numUnits = Number(units);
       if (numUnits && numUnits > 0) {
@@ -257,43 +176,31 @@ export default function HoldingsView({
     }
   };
 
-  // Universal Single Quote Fetcher (Stocks, Crypto, Mutual Funds)
   const handleFetchSingleQuote = async () => {
     const term = ticker.trim() || name.trim();
     if (!term) {
-      alert('Please enter a Stock Ticker, Crypto Symbol, or Mutual Fund Name (e.g. AAPL, BTC, RELIANCE, Parag Parikh).');
+      alert('Please enter a Mutual Fund Scheme Name or 6-digit Code (e.g. Parag Parikh Flexi Cap, SBI Small Cap, HDFC Top 100).');
       return;
     }
 
     setIsFetchingSingleQuote(true);
-    setSingleQuoteStatus(`Resolving live quote for "${term}"...`);
+    setSingleQuoteStatus('Fetching official NAV from AMFI (mfapi.in)...');
 
     try {
-      const res = await fetchUniversalQuote(term, category);
-      setLatestNavPrice(res.price);
-      
-      const quoteCur = res.currency || nativeCurrency;
-      if (res.currency) {
-        setNativeCurrency(res.currency);
-      }
-      
-      setSingleQuoteStatus(`Live ${res.source || 'Quote'}: ${formatCurrency(res.price, quoteCur, { decimals: res.price < 10 ? 4 : 2 })} ${res.change24h ? `(${res.change24h >= 0 ? '+' : ''}${formatNumber(res.change24h, 2)}% 24h)` : ''}`);
-      
-      if (!name) setName(res.name);
-      if (!ticker && res.symbol) setTicker(res.symbol);
-      if (res.category && (!category || category === 'Mutual Funds / ETFs')) {
-        setCategory(res.category);
-      }
+      const res = await fetchMutualFundNav(term);
+      setLatestNavPrice(res.nav);
+      setSingleQuoteStatus(`NAV: ${formatCurrency(res.nav, currency, { decimals: 4 })} (Date: ${res.date})`);
+      if (!name) setName(res.schemeName);
+      if (!ticker && res.schemeCode) setTicker(String(res.schemeCode));
 
       const numUnits = Number(units);
       if (numUnits && numUnits > 0) {
-        const computedNative = Math.round(numUnits * res.price * 100) / 100;
-        setCurrentValue(computedNative);
+        setCurrentValue(Math.round(numUnits * res.nav * 100) / 100);
       } else if (!currentValue) {
-        setCurrentValue(res.price);
+        setCurrentValue(res.nav);
       }
     } catch (err) {
-      setSingleQuoteStatus(`Notice: ${err.message}. You may enter valuation manually.`);
+      setSingleQuoteStatus(`Error: ${err.message}`);
     } finally {
       setIsFetchingSingleQuote(false);
     }
@@ -308,7 +215,6 @@ export default function HoldingsView({
       name: name.trim(),
       ticker: ticker.toUpperCase() || name.substring(0, 4).toUpperCase(),
       category,
-      nativeCurrency: nativeCurrency || currency || 'INR',
       investedAmount: Number(investedAmount),
       currentValue: Number(currentValue),
       units: Number(units) || null,
@@ -319,54 +225,18 @@ export default function HoldingsView({
     setIsEditing(false);
   };
 
-  // Quick inline price save
-  const handleInlineSave = (ast) => {
-    const val = Number(inlinePriceVal);
-    if (!isNaN(val) && val >= 0) {
-      onSaveHolding({
-        ...ast,
-        currentValue: val,
-      });
-    }
-    setInlineEditingId(null);
-  };
-
-  // Quick inline units save
-  const handleInlineUnitsSave = (ast) => {
-    const u = Number(inlineUnitsVal);
-    if (!isNaN(u) && u >= 0) {
-      let updatedVal = ast.currentValue;
-      if (ast.units && Number(ast.units) > 0 && u > 0) {
-        const pricePerUnit = ast.currentValue / Number(ast.units);
-        updatedVal = Math.round(u * pricePerUnit * 100) / 100;
-      }
-      onSaveHolding({
-        ...ast,
-        units: u > 0 ? u : null,
-        currentValue: updatedVal,
-      });
-    }
-    setInlineUnitsEditingId(null);
-  };
-
-  const handleDelete = (id) => {
-    if (window.confirm('Remove this asset position from the syndicate pool?')) {
-      onDeleteHolding(id);
-    }
-  };
-
-  // Run the 1-Click Universal Batch Live Sync
+  // Run the 1-Click Batch Price Sync for Mutual Funds
   const handleRunBatchSync = async () => {
     setIsBatchSyncing(true);
-    setBatchProgress({ current: 0, total: holdings.length, name: 'Starting Universal Live Price Sync...' });
+    setBatchProgress({ current: 0, total: holdings.length, name: 'Starting AMFI live sync...' });
     setBatchSummary(null);
 
     try {
-      const syncResult = await syncUniversalHoldingsBatch(holdings, currency, (p) => {
+      const syncResult = await syncMutualFundHoldingsBatch(holdings, (p) => {
         setBatchProgress({ current: p.currentIndex, total: p.total, name: p.currentHolding });
       });
 
-      // Update state with updated holdings
+      // Apply each updated holding value
       for (const res of syncResult.results) {
         if (res.success) {
           const target = holdings.find(h => h.id === res.holdingId);
@@ -374,241 +244,320 @@ export default function HoldingsView({
             await onSaveHolding({
               ...target,
               currentValue: res.newValue,
-              nativeCurrency: res.nativeCurrency,
-              lastPrice: res.livePrice,
+              lastNav: res.liveNav,
             });
           }
         }
       }
 
+      // Sync fund NAV to match new total valuation
       if (onSyncValuationToNAV) {
         onSyncValuationToNAV();
       }
 
       setBatchSummary(syncResult);
     } catch (err) {
-      alert(`Batch sync failed: ${err.message}`);
+      alert(`AMFI sync failed: ${err.message}`);
     } finally {
       setIsBatchSyncing(false);
+      setBatchProgress(null);
+    }
+  };
+
+  const handleInlineSave = (ast) => {
+    const val = Number(inlinePriceVal);
+    if (!val || val <= 0) {
+      setInlineEditingId(null);
+      return;
+    }
+
+    onSaveHolding({
+      ...ast,
+      currentValue: val,
+    });
+    setInlineEditingId(null);
+  };
+
+  const handleInlineUnitsSave = async (ast) => {
+    const val = Number(inlineUnitsVal);
+    if (isNaN(val) || val < 0) {
+      setInlineUnitsEditingId(null);
+      return;
+    }
+
+    let newCurrentVal = ast.currentValue;
+    // If live NAV is accessible, update market value
+    if (val > 0) {
+      try {
+        const quote = await fetchMutualFundNav(ast.ticker || ast.name);
+        if (quote && quote.nav) {
+          newCurrentVal = Math.round(val * quote.nav * 100) / 100;
+        }
+      } catch (e) {
+        // keep current value
+      }
+    }
+
+    await onSaveHolding({
+      ...ast,
+      units: val > 0 ? val : null,
+      currentValue: newCurrentVal,
+    });
+    setInlineUnitsEditingId(null);
+  };
+
+  const handleDelete = (id) => {
+    if (confirm('Delete this asset position?')) {
+      onDeleteHolding(id);
     }
   };
 
   return (
-    <div className="space-y-4">
-      {/* Kubera-Style Clean Header & Allocation Stats */}
-      <div className="card p-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="section-title text-base font-semibold">Syndicate Portfolio Assets</span>
-              <span className="badge badge-profit mono text-xxs font-semibold" title="Powered by European Central Bank feed">
-                ECB FX CONNECTED
+    <div>
+      {/* Metric Strip */}
+      <div className="metric-strip">
+        <div className="metric-cell">
+          <span className="metric-label">Holdings Valuation</span>
+          <span className="metric-val mono">{formatCurrency(totalHoldingsValue, currency)}</span>
+          <div className="metric-delta">
+            <span className={totalHoldingsProfit >= 0 ? 'text-profit' : 'text-loss'}>
+              {totalHoldingsProfit >= 0 ? '+' : ''}{formatCurrency(totalHoldingsProfit, currency, { decimals: 0 })} ({formatNumber(totalHoldingsRoi, 1)}%)
+            </span>
+          </div>
+        </div>
+
+        <div className="metric-cell">
+          <span className="metric-label">Current Fund NAV</span>
+          <span className="metric-val mono">{formatCurrency(fundMetrics.currentNav, currency, { decimals: 2 })}</span>
+          <div className="metric-delta text-muted">
+            <span>Directly derived from holdings</span>
+          </div>
+        </div>
+
+        <div className="metric-cell">
+          <span className="metric-label">Total Cost Basis</span>
+          <span className="metric-val mono">{formatCurrency(totalInvested, currency)}</span>
+          <div className="metric-delta text-muted">
+            <span>{holdings.length} active positions</span>
+          </div>
+        </div>
+
+        <div className="metric-cell flex items-center justify-end gap-2">
+          {!isInvestor ? (
+            <>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => {
+                  setBatchSummary(null);
+                  setIsSyncModalOpen(true);
+                }}
+                disabled={isBatchSyncing || holdings.length === 0}
+                title="Auto-fetch live NSE/BSE stock and AMFI mutual fund prices in 1 batch"
+              >
+                {isBatchSyncing ? 'SYNCING...' : 'SYNC LIVE PRICES'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={handleOpenAdd}
+              >
+                + Add Asset / FD
+              </button>
+            </>
+          ) : (
+            <span className="badge badge-neutral mono text-xs">
+              Portfolio Backing • Managed by {fundInfo?.managerName || 'Fund Manager'}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Unallocated Liquid Cash Banner */}
+      {fundMetrics.undeployedCash > 0 && (
+        <div 
+          className="card p-3 mb-3 flex justify-between items-center text-xs"
+          style={{ background: 'rgba(99, 102, 241, 0.06)', border: '1px solid rgba(99, 102, 241, 0.25)' }}
+        >
+          <div className="flex items-center gap-2">
+            <span className="badge badge-profit mono font-semibold" style={{ fontSize: 10 }}>UNALLOCATED CASH</span>
+            <span>
+              <strong>{formatCurrency(fundMetrics.undeployedCash, currency)}</strong> of newly deposited member capital is held as liquid bank balance (100% NAV protected).
+            </span>
+          </div>
+          {!isInvestor && (
+            <span className="text-muted">
+              Add new positions or record SIP investments to deploy this capital.
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Holdings Content: Discretionary Trust Mandate for Investors or Full Positions Table for Managers/Transparent */}
+      {isPrivateMandate ? (
+        <div className="space-y-4">
+          {/* Institutional Discretionary Mandate Security Card */}
+          <div 
+            className="card p-4" 
+            style={{ 
+              background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.8) 100%)', 
+              border: '1px solid var(--border-color)' 
+            }}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span className="badge badge-warning mono font-semibold" style={{ fontSize: 10 }}>
+                  DISCRETIONARY TRUST MANDATE
+                </span>
+                <span className="badge badge-neutral mono" style={{ fontSize: 9 }}>
+                  CONFIDENTIAL PORTFOLIO
+                </span>
+              </div>
+              <span className="text-xs text-muted mono">
+                Fund Manager: <strong>{fundInfo?.managerName || 'Manager'}</strong>
               </span>
             </div>
-            <span className="text-xs text-muted block mt-0.5">
-              Multi-Asset, Multi-Currency Balance Sheet • Denominated in {currency}
-            </span>
+            <p className="text-sm leading-relaxed mb-3 text-secondary">
+              Under this syndicate pool mandate, granular underlying stock tickers, intraday trade logs, and broker execution notes remain <strong>strictly confidential</strong> to the Fund Manager. This eliminates retail panic over daily market fluctuations, prevents strategy front-running, and safeguards proprietary trading execution.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs mono pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+              <div>
+                <span className="text-muted block text-xxs">NAV PROTECTION</span>
+                <span className="text-primary font-medium">Unitized Daily NAV Tracking</span>
+              </div>
+              <div>
+                <span className="text-muted block text-xxs">TRANSACTION AUDIT</span>
+                <span className="text-profit font-medium">100% Verified Two-Way Ledger</span>
+              </div>
+              <div>
+                <span className="text-muted block text-xxs">CONFIDENTIALITY</span>
+                <span className="text-secondary font-medium">Proprietary Alpha Shield</span>
+              </div>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
-            {!isInvestor && (
-              <>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm mono"
-                  onClick={() => {
-                    setBatchSummary(null);
-                    setIsSyncModalOpen(true);
-                  }}
-                  disabled={isBatchSyncing || holdings.length === 0}
-                  title="Auto-fetch live prices for Stocks, Crypto, and Mutual Funds in 1 click"
-                >
-                  ⚡ {isBatchSyncing ? 'SYNCING...' : 'SYNC LIVE PRICES'}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  onClick={handleOpenAdd}
-                >
-                  + Add Asset / Position
-                </button>
-              </>
-            )}
+          {/* Asset Allocation Breakdown Table */}
+          <div className="card p-4">
+            <div className="section-head mb-3">
+              <div>
+                <span className="section-title">Syndicate Asset Class Allocation</span>
+                <span className="text-xs text-muted block">
+                  Broad asset classes backing current fund NAV. Granular stock positions are managed confidentially by the manager.
+                </span>
+              </div>
+            </div>
+
+            <div className="table-responsive">
+              <table className="dense-table">
+                <thead>
+                  <tr>
+                    <th>Asset Class</th>
+                    <th>Positions</th>
+                    <th>Allocation Cost</th>
+                    <th>Current Valuation</th>
+                    <th>Net Return</th>
+                    <th>Portfolio Weight</th>
+                    <th>Mandate Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {categoryList.length === 0 ? (
+                    <tr>
+                      <td colSpan="7" className="text-center text-muted py-6">
+                        No asset positions logged yet. Pool is currently held in 100% liquid cash.
+                      </td>
+                    </tr>
+                  ) : (
+                    categoryList.map((cat) => {
+                      const gain = cat.currentValue - cat.costBasis;
+                      const roi = cat.costBasis > 0 ? (gain / cat.costBasis) * 100 : 0;
+                      const weight = totalHoldingsValue > 0 ? (cat.currentValue / totalHoldingsValue) * 100 : 0;
+                      return (
+                        <tr key={cat.category}>
+                          <td className="font-semibold text-primary">{cat.category}</td>
+                          <td className="mono text-muted">{cat.count} position{cat.count > 1 ? 's' : ''}</td>
+                          <td className="mono text-muted">{formatCurrency(cat.costBasis, currency)}</td>
+                          <td className="mono font-semibold">{formatCurrency(cat.currentValue, currency)}</td>
+                          <td className={`mono ${gain >= 0 ? 'text-profit' : 'text-loss'}`}>
+                            {gain >= 0 ? '+' : ''}{formatCurrency(gain, currency, { decimals: 0 })} ({formatNumber(roi, 1)}%)
+                          </td>
+                          <td className="mono font-medium">{formatNumber(weight, 1)}%</td>
+                          <td>
+                            <span className="badge badge-neutral mono" style={{ fontSize: 9 }}>
+                              DISCRETIONARY
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
-
-        {/* Kubera Top Portfolio Strip */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 pt-3" style={{ borderTop: '1px solid var(--border-subtle)' }}>
-          <div>
-            <span className="text-xxs text-muted mono uppercase tracking-wider block">Total Portfolio Value</span>
-            <span className="text-lg font-bold mono text-primary">
-              {formatCurrency(totalHoldingsValue, currency)}
-            </span>
-          </div>
-          <div>
-            <span className="text-xxs text-muted mono uppercase tracking-wider block">Cost Basis</span>
-            <span className="text-base font-semibold mono text-secondary">
-              {formatCurrency(totalInvested, currency)}
-            </span>
-          </div>
-          <div>
-            <span className="text-xxs text-muted mono uppercase tracking-wider block">Unrealized Gain / Return</span>
-            <span className={`text-base font-semibold mono ${totalHoldingsProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
-              {totalHoldingsProfit >= 0 ? '+' : ''}{formatCurrency(totalHoldingsProfit, currency)} ({formatNumber(totalHoldingsRoi, 1)}%)
-            </span>
-          </div>
-          <div>
-            <span className="text-xxs text-muted mono uppercase tracking-wider block">Undeployed Liquidity</span>
-            <span className="text-base font-semibold mono text-primary">
-              {formatCurrency(fundMetrics.undeployedCash || 0, currency)}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Kubera Clean Asset Class Filter Tabs */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
-        {ASSET_CLASSES.map(ac => {
-          const count = tabCounts[ac.id] || 0;
-          const isActive = activeTab === ac.id;
-          return (
-            <button
-              key={ac.id}
-              type="button"
-              onClick={() => setActiveTab(ac.id)}
-              className={`btn btn-sm ${isActive ? 'btn-primary' : 'btn-secondary'}`}
-              style={{
-                borderRadius: '20px',
-                fontSize: 11,
-                padding: '4px 12px',
-                whiteSpace: 'nowrap',
-                fontWeight: isActive ? 600 : 400,
-              }}
-            >
-              <span style={{ marginRight: 4 }}>{ac.icon}</span>
-              {ac.label}
-              <span 
-                className="mono text-xxs ml-1.5" 
-                style={{ 
-                  opacity: isActive ? 0.9 : 0.6,
-                  background: isActive ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.06)',
-                  padding: '1px 5px',
-                  borderRadius: '10px'
-                }}
-              >
-                {count}
+      ) : (
+        <div className="card p-4">
+          <div className="section-head">
+            <div>
+              <span className="section-title">Syndicate Portfolio Positions</span>
+              <span className="text-xs text-muted block">
+                Updating any FD or asset price updates the fund NAV and all participants' balances automatically.
               </span>
-            </button>
-          );
-        })}
-      </div>
+            </div>
+          </div>
 
-      {/* Main Table / Position Sheet */}
-      <div className="card p-4">
         <div className="table-responsive">
           <table className="dense-table">
             <thead>
               <tr>
                 <th>Ticker / Code</th>
                 <th>Asset Name</th>
-                <th>Class</th>
-                <th>Price / NAV</th>
+                <th>Category</th>
                 <th>Units / Qty</th>
                 <th>Cost Basis</th>
-                <th>Market Value ({currency})</th>
+                <th>Market Value (Current)</th>
                 <th>Return</th>
                 <th>Weight</th>
-                {!isInvestor && <th>Actions</th>}
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filteredHoldings.length === 0 ? (
+              {holdings.length === 0 ? (
                 <tr>
-                  <td colSpan={isInvestor ? 9 : 10} className="text-center text-muted py-8">
-                    No positions found under this asset class.
+                  <td colSpan="9" className="text-center text-muted py-6">
+                    No holdings yet. Click "+ Add Asset / FD" to log an investment or Fixed Deposit.
                   </td>
                 </tr>
               ) : (
-                filteredHoldings.map((ast) => {
-                  const hCur = ast.nativeCurrency || ast.currency || currency;
-                  const isCrossCurrency = hCur !== currency;
-                  
-                  // Convert raw values to Fund Base Currency
-                  const convertedInvested = convertCurrency(ast.investedAmount, hCur, currency, fxRates);
-                  const convertedCurrent = convertCurrency(ast.currentValue, hCur, currency, fxRates);
-                  
-                  const gain = convertedCurrent - convertedInvested;
-                  const roi = convertedInvested > 0 ? (gain / convertedInvested) * 100 : 0;
-                  const weight = totalHoldingsValue > 0 ? (convertedCurrent / totalHoldingsValue) * 100 : 0;
-                  
+                holdings.map((ast) => {
+                  const gain = ast.currentValue - ast.investedAmount;
+                  const roi = ast.investedAmount > 0 ? (gain / ast.investedAmount) * 100 : 0;
+                  const weight = totalHoldingsValue > 0 ? (ast.currentValue / totalHoldingsValue) * 100 : 0;
                   const isInline = inlineEditingId === ast.id;
                   const isUnitsInline = inlineUnitsEditingId === ast.id;
 
-                  // Price per unit in native currency
-                  const unitsNum = Number(ast.units || ast.quantity);
-                  const nativePrice = unitsNum > 0 ? (ast.currentValue / unitsNum) : (ast.lastPrice || null);
-
                   return (
                     <tr key={ast.id}>
-                      {/* Ticker & Exchange */}
-                      <td className="mono font-semibold" style={{ minWidth: 100 }}>
-                        <div className="flex items-center gap-1.5">
-                          <span>{ast.ticker}</span>
-                          {isCrossCurrency && (
-                            <span className="badge badge-neutral mono" style={{ fontSize: 9, padding: '1px 4px' }}>
-                              {hCur}
-                            </span>
-                          )}
-                        </div>
+                      <td className="mono font-semibold">{ast.ticker}</td>
+                      <td className="font-medium">
+                        <div>{ast.name}</div>
+                        {ast.notes && <div className="text-xs text-muted truncate" style={{ maxWidth: 160 }}>{ast.notes}</div>}
                       </td>
-
-                      {/* Name & Memo */}
-                      <td className="font-medium" style={{ minWidth: 180 }}>
-                        <div style={{ wordBreak: 'break-word' }}>{ast.name}</div>
-                        {ast.notes && <div className="text-xs text-muted truncate" style={{ maxWidth: 220 }}>{ast.notes}</div>}
-                      </td>
-
-                      {/* Asset Class Badge */}
-                      <td style={{ minWidth: 110 }}>
-                        <span 
-                          className="badge mono text-xxs font-medium"
-                          style={{
-                            background: ast.category?.includes('Crypto') ? 'rgba(168, 85, 247, 0.15)' :
-                                        ast.category?.includes('Stock') ? 'rgba(59, 130, 246, 0.15)' :
-                                        ast.category?.includes('Mutual') ? 'rgba(34, 197, 94, 0.15)' :
-                                        ast.category?.includes('Fixed') ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255, 255, 255, 0.08)',
-                            color: ast.category?.includes('Crypto') ? '#c084fc' :
-                                   ast.category?.includes('Stock') ? '#60a5fa' :
-                                   ast.category?.includes('Mutual') ? '#4ade80' :
-                                   ast.category?.includes('Fixed') ? '#fbbf24' : 'var(--text-secondary)',
-                            border: 'none',
-                            padding: '2px 6px',
-                          }}
-                        >
-                          {ast.category || 'Asset'}
-                        </span>
-                      </td>
-
-                      {/* Price / NAV */}
-                      <td className="mono text-xs" style={{ minWidth: 90 }}>
-                        {nativePrice ? (
-                          <span>{formatCurrency(nativePrice, hCur, { decimals: nativePrice < 10 ? 4 : 2 })}</span>
-                        ) : (
-                          <span className="text-muted">—</span>
-                        )}
-                      </td>
-
-                      {/* Units / Quantity */}
-                      <td style={{ minWidth: 80 }}>
+                      <td className="text-muted text-xs">{ast.category}</td>
+                      
+                      {/* Units / Qty */}
+                      <td>
                         {isUnitsInline ? (
                           <div className="flex items-center gap-1">
                             <input
                               type="number"
                               step="any"
+                              placeholder="Units"
                               value={inlineUnitsVal}
                               onChange={(e) => setInlineUnitsVal(e.target.value)}
                               className="form-input mono"
-                              style={{ width: 75, padding: '2px 4px', fontSize: 11 }}
+                              style={{ width: 85, padding: '2px 5px', fontSize: 11 }}
                               autoFocus
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') handleInlineUnitsSave(ast);
@@ -618,50 +567,50 @@ export default function HoldingsView({
                             <button
                               type="button"
                               className="btn btn-primary btn-sm mono"
-                              style={{ padding: '2px 5px', fontSize: 10 }}
+                              style={{ padding: '2px 6px', fontSize: 10 }}
                               onClick={() => handleInlineUnitsSave(ast)}
                             >
-                              ✓
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm mono"
+                              style={{ padding: '2px 6px', fontSize: 10 }}
+                              onClick={() => setInlineUnitsEditingId(null)}
+                            >
+                              Cancel
                             </button>
                           </div>
-                        ) : unitsNum > 0 ? (
-                          <span 
-                            className="mono text-muted cursor-pointer hover:underline"
+                        ) : ast.units && Number(ast.units) > 0 ? (
+                          <div 
+                            style={{ cursor: 'pointer' }}
                             onClick={() => {
-                              if (!isInvestor) {
-                                setInlineUnitsEditingId(ast.id);
-                                setInlineUnitsVal(unitsNum);
-                              }
+                              setInlineUnitsEditingId(ast.id);
+                              setInlineUnitsVal(ast.units);
                             }}
-                            title="Click to edit quantity"
+                            title="Click to edit units"
                           >
-                            {formatNumber(unitsNum, 3)}
-                          </span>
+                            <span className="mono text-muted">{formatNumber(ast.units, 3)}</span>
+                          </div>
                         ) : (
-                          <span 
-                            className="text-muted cursor-pointer"
+                          <span
+                            className="text-muted"
+                            style={{ cursor: 'pointer', fontSize: 12 }}
                             onClick={() => {
-                              if (!isInvestor) {
-                                setInlineUnitsEditingId(ast.id);
-                                setInlineUnitsVal('');
-                              }
+                              setInlineUnitsEditingId(ast.id);
+                              setInlineUnitsVal('');
                             }}
+                            title="Click to add units"
                           >
                             —
                           </span>
                         )}
                       </td>
 
-                      {/* Cost Basis */}
-                      <td className="mono text-muted text-xs" style={{ minWidth: 90 }}>
-                        {formatCurrency(convertedInvested, currency, { decimals: 0 })}
-                        {isCrossCurrency && (
-                          <div className="text-xxs opacity-75">{formatCurrency(ast.investedAmount, hCur, { decimals: 0 })}</div>
-                        )}
-                      </td>
-
-                      {/* Market Value (Base Currency) */}
-                      <td style={{ minWidth: 120 }}>
+                      <td className="mono text-muted">{formatCurrency(ast.investedAmount, currency, { decimals: 0 })}</td>
+                      
+                      {/* Current Value (Quick inline editable) */}
+                      <td>
                         {isInline ? (
                           <div className="flex items-center gap-1">
                             <input
@@ -670,7 +619,7 @@ export default function HoldingsView({
                               value={inlinePriceVal}
                               onChange={(e) => setInlinePriceVal(e.target.value)}
                               className="form-input mono"
-                              style={{ width: 90, padding: '2px 5px', fontSize: 11 }}
+                              style={{ width: 100, padding: '2px 6px', fontSize: 11 }}
                               autoFocus
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') handleInlineSave(ast);
@@ -680,52 +629,83 @@ export default function HoldingsView({
                             <button
                               type="button"
                               className="btn btn-primary btn-sm mono"
-                              style={{ padding: '2px 5px', fontSize: 10 }}
+                              style={{ padding: '2px 6px', fontSize: 10 }}
                               onClick={() => handleInlineSave(ast)}
                             >
-                              ✓
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm mono"
+                              style={{ padding: '2px 6px', fontSize: 10 }}
+                              onClick={() => setInlineEditingId(null)}
+                            >
+                              Cancel
                             </button>
                           </div>
                         ) : (
                           <div 
-                            className="cursor-pointer"
+                            className="flex items-center gap-1"
+                            style={{ cursor: 'pointer' }}
                             onClick={() => {
-                              if (!isInvestor) {
-                                setInlineEditingId(ast.id);
-                                setInlinePriceVal(ast.currentValue);
-                              }
+                              setInlineEditingId(ast.id);
+                              setInlinePriceVal(ast.currentValue);
                             }}
-                            title="Click to edit value directly"
+                            title="Click to quickly update weekly/daily price"
                           >
-                            <span className="mono font-semibold">{formatCurrency(convertedCurrent, currency)}</span>
-                            {isCrossCurrency && (
-                              <div className="text-xxs text-muted mono">
-                                {formatCurrency(ast.currentValue, hCur)} (1 {hCur} ≈ {formatNumber(getExchangeRate(hCur, currency, fxRates), 2)} {currency})
-                              </div>
-                            )}
+                            <span className="mono font-semibold">{formatCurrency(ast.currentValue, currency)}</span>
+                            <span className="text-xs text-muted hover:underline" style={{ fontSize: 10 }}>(edit)</span>
                           </div>
                         )}
                       </td>
 
-                      {/* Return */}
-                      <td className={`mono text-xs ${gain >= 0 ? 'text-profit' : 'text-loss'}`} style={{ minWidth: 90 }}>
-                        {gain >= 0 ? '+' : ''}{formatCurrency(gain, currency, { decimals: 0 })}
-                        <div className="text-xxs font-semibold">({formatNumber(roi, 1)}%)</div>
+                      <td className={`mono ${gain >= 0 ? 'text-profit' : 'text-loss'}`}>
+                        {gain >= 0 ? '+' : ''}{formatCurrency(gain, currency, { decimals: 0 })} ({formatNumber(roi, 1)}%)
                       </td>
-
-                      {/* Portfolio Weight */}
-                      <td className="mono text-xs font-medium" style={{ minWidth: 70 }}>
-                        {formatNumber(weight, 1)}%
-                      </td>
-
-                      {/* Actions */}
-                      {!isInvestor && (
-                        <td style={{ minWidth: 120 }}>
-                          <div className="flex items-center gap-1">
+                      <td className="mono text-muted">{formatNumber(weight, 1)}%</td>
+                      <td>
+                        {!isInvestor ? (
+                          <div className="flex gap-1">
                             <button
                               type="button"
                               className="btn btn-secondary btn-sm"
-                              style={{ padding: '2px 6px', fontSize: 10 }}
+                              style={{ padding: '2px 6px', fontSize: 11 }}
+                              onClick={async () => {
+                                const amount = prompt(`Enter SIP Amount to add to ${ast.name}:`);
+                                if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) return;
+                                const addAmt = Number(amount);
+
+                                let addUnits = 0;
+                                const unitsStr = prompt(`(Optional) Enter Units bought with this SIP (or leave blank to auto-calculate via live NAV):`);
+                                if (unitsStr && !isNaN(Number(unitsStr)) && Number(unitsStr) > 0) {
+                                  addUnits = Number(unitsStr);
+                                } else {
+                                  try {
+                                    const quote = await fetchMutualFundNav(ast.ticker || ast.name);
+                                    if (quote?.nav) {
+                                      addUnits = Math.round((addAmt / quote.nav) * 1000) / 1000;
+                                    }
+                                  } catch (e) {}
+                                }
+
+                                const currentUnits = Number(ast.units) || 0;
+                                const updatedUnits = currentUnits + addUnits;
+
+                                onSaveHolding({
+                                  ...ast,
+                                  investedAmount: ast.investedAmount + addAmt,
+                                  currentValue: ast.currentValue + addAmt,
+                                  units: updatedUnits > 0 ? updatedUnits : null,
+                                });
+                              }}
+                              title="Add monthly/weekly SIP purchase amount"
+                            >
+                              + SIP
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              style={{ padding: '2px 6px', fontSize: 11 }}
                               onClick={() => handleOpenEdit(ast)}
                             >
                               Edit
@@ -733,14 +713,18 @@ export default function HoldingsView({
                             <button
                               type="button"
                               className="btn btn-secondary btn-sm mono"
-                              style={{ padding: '2px 6px', fontSize: 10 }}
+                              style={{ padding: '2px 6px', fontSize: 11 }}
                               onClick={() => handleDelete(ast.id)}
                             >
                               Del
                             </button>
                           </div>
-                        </td>
-                      )}
+                        ) : (
+                          <span className="badge badge-neutral mono" style={{ fontSize: 10, padding: '2px 6px' }}>
+                            ASSET BACKING
+                          </span>
+                        )}
+                      </td>
                     </tr>
                   );
                 })
@@ -749,26 +733,35 @@ export default function HoldingsView({
           </table>
         </div>
       </div>
+      )}
 
-      {/* Add / Edit Position Modal */}
+      {/* Add / Edit Modal */}
       {isEditing && (
         <div className="modal-overlay" onClick={() => setIsEditing(false)}>
-          <div className="modal-content" style={{ maxWidth: 540 }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="section-head mb-3">
-              <span className="section-title">{editingAsset ? 'Edit Position' : 'New Position / Asset'}</span>
+              <span className="section-title">{editingAsset ? 'Edit Position' : 'New Position / FD'}</span>
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => setIsEditing(false)}>Cancel</button>
             </div>
 
             <form onSubmit={handleSave}>
               <div className="form-group" ref={autocompleteContainerRef}>
-                <div className="flex justify-between items-baseline mb-1">
-                  <label className="form-label mb-0">Asset / Ticker / Scheme Name</label>
-                  <span className="text-xxs text-muted">Supports Stocks, Crypto, Mutual Funds & FDs</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+                  <label className="form-label" style={{ marginBottom: 0 }}>Investment / Scheme Name</label>
+                  {category === 'Mutual Funds / ETFs' && (
+                    <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                      Type 2+ characters for live AMFI suggestions
+                    </span>
+                  )}
                 </div>
                 <div className="autocomplete-container">
                   <input
                     type="text"
-                    placeholder="e.g. AAPL, BTC, RELIANCE, Parag Parikh Flexi Cap, or HDFC FD..."
+                    placeholder={
+                      category === 'Mutual Funds / ETFs'
+                        ? "Search fund (e.g. Parag Parikh, Quant Small Cap, Mirae, HDFC)..."
+                        : "e.g. HDFC 1-Year FD (7.4%) or Gold ETF"
+                    }
                     value={name}
                     onChange={(e) => handleNameChange(e.target.value)}
                     onFocus={() => {
@@ -785,21 +778,41 @@ export default function HoldingsView({
                   )}
                   {showSuggestions && fundSuggestions.length > 0 && (
                     <div className="autocomplete-dropdown">
-                      {fundSuggestions.map((item) => (
-                        <div
-                          key={item.schemeCode}
-                          className="autocomplete-item"
-                          onClick={() => handleSelectSuggestion(item)}
-                        >
-                          <div className="flex flex-col gap-0.5 flex-1 min-w-0">
-                            <span className="autocomplete-item-name">{item.schemeName}</span>
-                            <span className="text-xxs text-muted mono">#{item.schemeCode}</span>
+                      {fundSuggestions.map((item) => {
+                        const isDirect = item.schemeName.toLowerCase().includes('direct');
+                        const isGrowth = item.schemeName.toLowerCase().includes('growth');
+                        return (
+                          <div
+                            key={item.schemeCode}
+                            className="autocomplete-item"
+                            onClick={() => handleSelectSuggestion(item)}
+                          >
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1, minWidth: 0 }}>
+                              <span className="autocomplete-item-name" style={{ wordBreak: 'break-word' }}>
+                                {item.schemeName}
+                              </span>
+                              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                {isDirect && (
+                                  <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'rgba(34, 197, 94, 0.15)', color: '#22c55e', fontWeight: 600 }}>
+                                    DIRECT
+                                  </span>
+                                )}
+                                {isGrowth && (
+                                  <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'rgba(255, 255, 255, 0.08)', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                                    GROWTH
+                                  </span>
+                                )}
+                                <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                                  #{item.schemeCode}
+                                </span>
+                              </div>
+                            </div>
+                            <span className="btn btn-secondary btn-sm" style={{ fontSize: 10, padding: '2px 8px', pointerEvents: 'none' }}>
+                              Select
+                            </span>
                           </div>
-                          <span className="btn btn-secondary btn-sm" style={{ fontSize: 10, padding: '2px 8px' }}>
-                            Select
-                          </span>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -807,45 +820,45 @@ export default function HoldingsView({
 
               <div className="form-row">
                 <div className="form-group flex-1">
-                  <label className="form-label">Ticker / Symbol</label>
+                  <label className="form-label">Ticker / Code</label>
                   <input
                     type="text"
-                    placeholder="e.g. AAPL, BTC, 122639"
+                    placeholder="e.g. 122639, RELIANCE, etc."
                     value={ticker}
                     onChange={(e) => setTicker(e.target.value)}
                     className="form-input mono"
                   />
                 </div>
                 <div className="form-group flex-1">
-                  <label className="form-label">Asset Class / Category</label>
+                  <label className="form-label">Category</label>
                   <select
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
                     className="form-select"
                   >
-                    <option value="Equities / Stocks">Equities / Stocks (US & Global)</option>
-                    <option value="Mutual Funds / ETFs">Mutual Funds / ETFs (AMFI & Index)</option>
-                    <option value="Crypto">Crypto & Digital Assets</option>
-                    <option value="Fixed Deposit (FD)">Fixed Deposit (FD) / Debt</option>
-                    <option value="Precious Metals (Gold)">Precious Metals (Gold / Silver)</option>
-                    <option value="Real Estate">Real Estate / Private Equity</option>
-                    <option value="Liquid Cash / Overnight">Liquid Cash / Currency Reserve</option>
+                    <option value="Equities / Stocks">Equities / Stocks</option>
+                    <option value="Mutual Funds / ETFs">Mutual Funds / ETFs</option>
+                    <option value="Fixed Deposit (FD)">Fixed Deposit (FD)</option>
+                    <option value="Govt Bonds / Debt">Govt Bonds / Debt</option>
+                    <option value="Precious Metals (Gold)">Precious Metals (Gold)</option>
+                    <option value="Crypto">Crypto</option>
+                    <option value="Liquid Cash / Overnight">Liquid Cash / Overnight</option>
                   </select>
                 </div>
               </div>
 
+              {/* Units & Live Quote Fetcher */}
               <div className="form-row items-end">
                 <div className="form-group flex-1">
-                  <label className="form-label">Native Currency</label>
-                  <select
-                    value={nativeCurrency}
-                    onChange={(e) => setNativeCurrency(e.target.value)}
-                    className="form-select mono"
-                  >
-                    {Object.keys(CURRENCIES).map(c => (
-                      <option key={c} value={c}>{CURRENCIES[c].label}</option>
-                    ))}
-                  </select>
+                  <label className="form-label">Units / Quantity (Optional)</label>
+                  <input
+                    type="number"
+                    step="any"
+                    placeholder="e.g. 50 shares or 1240.5 units"
+                    value={units}
+                    onChange={(e) => handleUnitsChange(e.target.value)}
+                    className="form-input mono"
+                  />
                 </div>
                 <div className="form-group pb-1">
                   <button
@@ -854,35 +867,21 @@ export default function HoldingsView({
                     onClick={handleFetchSingleQuote}
                     disabled={isFetchingSingleQuote || (!ticker.trim() && !name.trim())}
                   >
-                    ⚡ {isFetchingSingleQuote ? 'FETCHING...' : 'FETCH LIVE PRICE'}
+                    {isFetchingSingleQuote ? 'FETCHING...' : 'FETCH LIVE PRICE'}
                   </button>
                 </div>
               </div>
-
               {singleQuoteStatus && (
-                <div className="card p-2 mb-3 text-xs mono text-secondary" style={{ background: 'rgba(255,255,255,0.03)' }}>
-                  {singleQuoteStatus}
-                </div>
+                <div className="text-xs mono mb-2 text-secondary">{singleQuoteStatus}</div>
               )}
 
               <div className="form-row">
                 <div className="form-group flex-1">
-                  <label className="form-label">Units / Quantity</label>
+                  <label className="form-label">Cost Basis (Invested Amount)</label>
                   <input
                     type="number"
                     step="any"
-                    placeholder="e.g. 25 shares or 0.15 BTC"
-                    value={units}
-                    onChange={(e) => handleUnitsChange(e.target.value)}
-                    className="form-input mono"
-                  />
-                </div>
-                <div className="form-group flex-1">
-                  <label className="form-label">Cost Basis ({nativeCurrency})</label>
-                  <input
-                    type="number"
-                    step="any"
-                    placeholder="Invested Amount"
+                    placeholder="e.g. 50000"
                     value={investedAmount}
                     onChange={(e) => setInvestedAmount(e.target.value)}
                     className="form-input mono"
@@ -890,11 +889,11 @@ export default function HoldingsView({
                   />
                 </div>
                 <div className="form-group flex-1">
-                  <label className="form-label">Current Value ({nativeCurrency})</label>
+                  <label className="form-label">Current Value (Market Value)</label>
                   <input
                     type="number"
                     step="any"
-                    placeholder="Market Value"
+                    placeholder="e.g. 51850"
                     value={currentValue}
                     onChange={(e) => setCurrentValue(e.target.value)}
                     className="form-input mono"
@@ -903,26 +902,11 @@ export default function HoldingsView({
                 </div>
               </div>
 
-              {/* Converted Fund Base Currency Preview */}
-              {nativeCurrency !== currency && currentValue && (
-                <div className="card p-2.5 mb-3 text-xs mono" style={{ background: 'rgba(99, 102, 241, 0.08)', border: '1px solid rgba(99, 102, 241, 0.2)' }}>
-                  <div className="flex justify-between items-center">
-                    <span className="text-muted">Converted in Fund Currency ({currency}):</span>
-                    <strong className="text-primary">
-                      {formatCurrency(convertCurrency(currentValue, nativeCurrency, currency, fxRates), currency)}
-                    </strong>
-                  </div>
-                  <div className="text-xxs text-muted mt-1">
-                    Live FX: 1 {nativeCurrency} ≈ {formatNumber(getExchangeRate(nativeCurrency, currency, fxRates), 4)} {currency}
-                  </div>
-                </div>
-              )}
-
               <div className="form-group">
-                <label className="form-label">Notes / Maturity Date / Staking Yield</label>
+                <label className="form-label">Notes / Maturity Date / Interest Rate</label>
                 <input
                   type="text"
-                  placeholder="e.g. Stored in Ledger Cold Wallet, or Matures Oct 2027 @ 7.4% p.a."
+                  placeholder="e.g. SIP Active, Matures Oct 2027 @ 7.4% p.a."
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   className="form-input"
@@ -938,20 +922,20 @@ export default function HoldingsView({
         </div>
       )}
 
-      {/* 1-Click Universal Batch Live Sync Modal */}
+      {/* 1-Click Batch Live Sync Modal */}
       {isSyncModalOpen && (
         <div className="modal-overlay" onClick={() => !isBatchSyncing && setIsSyncModalOpen(false)}>
-          <div className="modal-content" style={{ maxWidth: 540 }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
             <div className="section-head mb-3">
               <div>
-                <span className="section-title">Universal Live Market Sync</span>
+                <span className="section-title">Live Market Price Synchronizer</span>
                 <span className="text-xs text-muted block">
-                  Batch syncs live quotes across Global Stocks, Crypto (CoinGecko), and AMFI Mutual Funds.
+                  1-Click Batch Sync via IndianAPI (NSE/BSE) & AMFI Free Data Feeds
                 </span>
               </div>
               <button 
                 type="button" 
-                className="btn btn-secondary btn-sm" 
+                className="btn btn-secondary btn-sm mono" 
                 onClick={() => setIsSyncModalOpen(false)}
                 disabled={isBatchSyncing}
               >
@@ -959,67 +943,111 @@ export default function HoldingsView({
               </button>
             </div>
 
-            <div className="card p-3 mb-3 text-xs" style={{ background: 'rgba(255,255,255,0.02)' }}>
-              <div className="flex justify-between mb-1">
-                <span className="text-muted">Holdings to Refresh:</span>
-                <span className="font-semibold mono">{holdings.length} assets</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted">Target Valuation Currency:</span>
-                <span className="font-semibold mono">{currency}</span>
-              </div>
-            </div>
+            {/* AMFI Overview */}
+            {(() => {
+              const mfHoldings = holdings.filter(h => {
+                const c = (h.category || '').toLowerCase();
+                return c.includes('mutual') || c.includes('sip') || c.includes('fund');
+              });
 
-            {isBatchSyncing && batchProgress && (
-              <div className="mb-4">
-                <div className="flex justify-between text-xs mono mb-1">
-                  <span className="text-secondary">{batchProgress.name}</span>
-                  <span>{batchProgress.current} / {batchProgress.total}</span>
-                </div>
-                <div style={{ height: 6, background: 'var(--border-subtle)', borderRadius: 3, overflow: 'hidden' }}>
-                  <div 
-                    style={{ 
-                      height: '100%', 
-                      width: `${batchProgress.total > 0 ? (batchProgress.current / batchProgress.total) * 100 : 0}%`, 
-                      background: 'var(--accent-primary)',
-                      transition: 'width 0.2s ease'
-                    }} 
-                  />
-                </div>
-              </div>
-            )}
-
-            {batchSummary && (
-              <div className="card p-3 mb-3 text-xs mono space-y-1.5" style={{ background: 'rgba(34, 197, 94, 0.05)', border: '1px solid rgba(34, 197, 94, 0.2)' }}>
-                <div className="text-profit font-semibold">
-                  ✓ Live Sync Complete! Updated {batchSummary.totalUpdated} positions.
-                </div>
-                {batchSummary.totalSkipped > 0 && (
-                  <div className="text-muted text-xxs">
-                    {batchSummary.totalSkipped} manual positions (Real Estate / Cash) maintained.
+              return (
+                <div>
+                  <div className="card p-3 mb-3 bg-secondary text-xs mono">
+                    <div className="flex justify-between items-center mb-1">
+                      <span>Data Feed:</span>
+                      <strong className="text-profit">
+                        Official AMFI Database (mfapi.in)
+                      </strong>
+                    </div>
+                    <div className="text-muted">
+                      Eligible Mutual Funds & SIPs: <strong>{mfHoldings.length} positions</strong>
+                    </div>
+                    <div className="text-muted mt-1 text-xs">
+                      100% Free, zero API key required, pulls official SEBI daily closing NAVs.
+                    </div>
                   </div>
-                )}
-              </div>
-            )}
 
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => setIsSyncModalOpen(false)}
-                disabled={isBatchSyncing}
-              >
-                Done
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary btn-sm mono"
-                onClick={handleRunBatchSync}
-                disabled={isBatchSyncing}
-              >
-                {isBatchSyncing ? 'Syncing...' : 'Start Live Sync'}
-              </button>
-            </div>
+                  {/* Progress Indicator */}
+                  {isBatchSyncing && batchProgress && (
+                    <div className="card p-3 mb-3 text-xs mono">
+                      <div className="flex justify-between mb-1">
+                        <span>Fetching latest NAV from AMFI...</span>
+                        <span>{batchProgress.current} / {batchProgress.total}</span>
+                      </div>
+                      <div style={{ background: 'var(--bg-tertiary)', height: 6, borderRadius: 3, overflow: 'hidden' }}>
+                        <div 
+                          style={{ 
+                            background: 'var(--accent-primary)', 
+                            height: '100%', 
+                            width: `${(batchProgress.current / Math.max(1, batchProgress.total)) * 100}%`,
+                            transition: 'width 0.2s ease'
+                          }} 
+                        />
+                      </div>
+                      <span className="text-muted mt-2 block truncate">Querying: {batchProgress.name}</span>
+                    </div>
+                  )}
+
+                  {/* Batch Summary */}
+                  {batchSummary && (
+                    <div className="card p-3 mb-3 text-xs">
+                      <div className="font-semibold text-profit mb-2 mono">
+                        Sync Complete: Updated {batchSummary.totalUpdated} of {batchSummary.results.length} mutual funds to latest official AMFI NAVs.
+                      </div>
+                      <div className="table-responsive" style={{ maxHeight: 220 }}>
+                        <table className="dense-table text-xs">
+                          <thead>
+                            <tr>
+                              <th>Fund</th>
+                              <th>Previous</th>
+                              <th>New Value</th>
+                              <th>Latest NAV</th>
+                              <th>Date</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {batchSummary.results.map((r, idx) => {
+                              const diff = r.newValue - r.oldValue;
+                              const pct = r.oldValue > 0 ? (diff / r.oldValue) * 100 : 0;
+                              return (
+                                <tr key={idx}>
+                                  <td className="font-medium">{r.ticker || r.name}</td>
+                                  <td className="mono text-muted">{formatCurrency(r.oldValue, currency, { decimals: 0 })}</td>
+                                  <td className="mono font-semibold">{formatCurrency(r.newValue, currency, { decimals: 0 })}</td>
+                                  <td className="mono text-primary font-semibold">{r.liveNav ? formatCurrency(r.liveNav, currency, { decimals: 4 }) : '—'}</td>
+                                  <td className="text-muted text-xs mono">{r.navDate || (r.success ? 'Today' : r.error)}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex justify-end gap-2 mt-3">
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => setIsSyncModalOpen(false)}
+                      disabled={isBatchSyncing}
+                    >
+                      {batchSummary ? 'Close' : 'Cancel'}
+                    </button>
+                    {!batchSummary && (
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        onClick={handleRunBatchSync}
+                        disabled={isBatchSyncing || mfHoldings.length === 0}
+                      >
+                        {isBatchSyncing ? 'Syncing...' : `Sync All Mutual Funds (${mfHoldings.length})`}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
