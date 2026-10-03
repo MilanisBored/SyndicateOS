@@ -62,7 +62,7 @@ export default function Navbar({
               style={{ fontSize: 10, padding: '2px 7px' }}
               title={isInvestorView ? 'Viewing as Investor in this pool' : 'Viewing as Fund Manager'}
             >
-              {isInvestorView ? '📈 Investor' : '👔 Manager'}
+              {isInvestorView ? 'INVESTOR' : 'MANAGER'}
             </span>
 
             {/* Fund Switcher Dropdown */}
@@ -81,7 +81,7 @@ export default function Navbar({
                 style={{ fontSize: '11px', maxWidth: '170px' }}
               >
                 {managedFunds.length > 0 && (
-                  <optgroup label="👔 Funds You Manage">
+                  <optgroup label="Managed Pools">
                     {managedFunds.map((f) => (
                       <option key={f.id} value={f.id}>
                         {f.name || 'Syndicate Pool'}
@@ -90,7 +90,7 @@ export default function Navbar({
                   </optgroup>
                 )}
                 {investedFunds.length > 0 && (
-                  <optgroup label="📈 Syndicates You're In">
+                  <optgroup label="Invested Pools">
                     {investedFunds.map((f) => (
                       <option key={f.id} value={f.id}>
                         {f.name || 'Syndicate'} ({f.managerName})
@@ -100,7 +100,7 @@ export default function Navbar({
                 )}
                 {onCreateFund && (
                   <optgroup label="Actions">
-                    <option value="__new_pool__">+ New Syndicate Pool...</option>
+                    <option value="__new_pool__">+ New Pool...</option>
                   </optgroup>
                 )}
               </select>
@@ -115,7 +115,7 @@ export default function Navbar({
                 onClick={onTogglePerspective}
                 title="Toggle between Manager view and Investor perspective preview"
               >
-                {perspective === 'manager' ? '👁️ Preview Investor' : '👔 Manager Mode'}
+                {perspective === 'manager' ? 'Preview Investor' : 'Exit Preview'}
               </button>
             )}
           </div>
@@ -161,27 +161,28 @@ export default function Navbar({
             {/* Theme Toggle */}
             <button 
               type="button" 
-              className="btn btn-secondary btn-sm theme-btn" 
+              className="btn btn-secondary btn-sm theme-btn mono" 
               onClick={toggleTheme}
               title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} mode`}
+              style={{ fontSize: 10, padding: '3px 8px' }}
             >
-              {theme === 'dark' ? '☀️' : '🌙'}
+              {theme === 'dark' ? 'LIGHT' : 'DARK'}
             </button>
 
             {/* Adaptive Action Button */}
             {isInvestorView ? (
               <button 
                 type="button" 
-                className="btn btn-primary btn-sm topbar-cta-btn"
+                className="btn btn-primary btn-sm topbar-cta-btn mono"
                 onClick={onOpenStatementModal}
                 title="View your investor statement of account"
               >
-                📄 My Statement
+                Statement
               </button>
             ) : (
               <button 
                 type="button" 
-                className="btn btn-primary btn-sm topbar-cta-btn"
+                className="btn btn-primary btn-sm topbar-cta-btn mono"
                 onClick={onOpenTransactionModal}
               >
                 + Transaction
@@ -199,11 +200,12 @@ export default function Navbar({
                 </span>
                 <button
                   type="button"
-                  className="btn btn-secondary btn-sm lock-btn"
+                  className="btn btn-secondary btn-sm lock-btn mono"
                   onClick={onSignOut}
                   title="Lock Terminal / Sign Out"
+                  style={{ fontSize: 10, padding: '3px 7px' }}
                 >
-                  🔒
+                  Lock
                 </button>
               </div>
             )}

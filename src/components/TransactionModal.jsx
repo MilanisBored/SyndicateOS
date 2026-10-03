@@ -183,7 +183,7 @@ export default function TransactionModal({
                     checked={status === 'pending'}
                     onChange={() => setStatus('pending')}
                   />
-                  <span>⏳ Awaiting Investor Confirmation</span>
+                  <span>Awaiting Investor Confirmation</span>
                 </label>
                 <label className="flex items-center gap-1 text-xs" style={{ cursor: 'pointer' }}>
                   <input
@@ -193,7 +193,7 @@ export default function TransactionModal({
                     checked={status === 'verified'}
                     onChange={() => setStatus('verified')}
                   />
-                  <span>✓ Pre-Verified (Direct)</span>
+                  <span>Pre-Verified (Direct Settlement)</span>
                 </label>
               </div>
               <span className="text-xs text-muted block mt-1">

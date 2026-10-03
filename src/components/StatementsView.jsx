@@ -67,17 +67,19 @@ export default function StatementsView({
           <div className="flex gap-2">
             <button
               type="button"
-              className="btn btn-secondary btn-sm"
+              className="btn btn-secondary btn-sm mono"
               onClick={() => handleCopySummary(currentMember)}
+              style={{ fontSize: 11 }}
             >
-              {copiedId === currentMember.id ? '✓ Copied' : '📋 Copy Summary'}
+              {copiedId === currentMember.id ? 'COPIED' : 'COPY SUMMARY'}
             </button>
             <button
               type="button"
-              className="btn btn-primary btn-sm"
+              className="btn btn-primary btn-sm mono"
               onClick={() => onSelectMember(currentMember)}
+              style={{ fontSize: 11 }}
             >
-              📄 Open Full Statement
+              FULL STATEMENT
             </button>
           </div>
         </div>

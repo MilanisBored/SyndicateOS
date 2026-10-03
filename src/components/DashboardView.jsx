@@ -72,7 +72,7 @@ export default function DashboardView({
           style={{ background: 'rgba(99, 102, 241, 0.08)', border: '1px solid rgba(99, 102, 241, 0.25)' }}
         >
           <div className="flex items-center gap-3">
-            <span className="badge badge-profit mono">📈 Investor Portal</span>
+            <span className="badge badge-profit mono font-semibold" style={{ fontSize: 10, padding: '2px 7px' }}>INVESTOR PORTAL</span>
             <div>
               <span className="font-semibold block text-sm">
                 {currentMember.name} • Syndicate Managed by {managerName}
@@ -84,10 +84,11 @@ export default function DashboardView({
           </div>
           <button 
             type="button" 
-            className="btn btn-primary btn-sm"
+            className="btn btn-primary btn-sm mono"
             onClick={() => onSelectMember(currentMember)}
+            style={{ fontSize: 11 }}
           >
-            📄 View Full Statement
+            Full Statement
           </button>
         </div>
       )}
@@ -100,9 +101,9 @@ export default function DashboardView({
         >
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
-              <span className="badge badge-warning mono">🔔 Action Required</span>
+              <span className="badge badge-warning mono font-semibold" style={{ fontSize: 10, padding: '2px 7px' }}>ACTION REQUIRED</span>
               <span className="font-semibold text-sm">
-                {pendingInvestorTx.length} Pending Transfer{pendingInvestorTx.length > 1 ? 's' : ''} Awaiting Your Confirmation
+                {pendingInvestorTx.length} Pending Transfer{pendingInvestorTx.length > 1 ? 's' : ''} Awaiting Confirmation
               </span>
             </div>
             <span className="text-xs text-muted">
@@ -128,15 +129,15 @@ export default function DashboardView({
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    className="btn btn-primary btn-sm"
+                    className="btn btn-primary btn-sm mono"
                     style={{ fontSize: 11, padding: '3px 9px' }}
                     onClick={() => onConfirmTransaction && onConfirmTransaction(tx.id, 'verified', 'Confirmed by investor')}
                   >
-                    ✓ Confirm Deposit
+                    Confirm Deposit
                   </button>
                   <button
                     type="button"
-                    className="btn btn-secondary btn-sm"
+                    className="btn btn-secondary btn-sm mono"
                     style={{ fontSize: 11, padding: '3px 9px', color: 'var(--loss)' }}
                     onClick={() => {
                       const reason = prompt('Please describe the discrepancy (e.g. transferred different amount, incorrect date):');
@@ -145,7 +146,7 @@ export default function DashboardView({
                       }
                     }}
                   >
-                    ⚠️ Report Issue
+                    Report Discrepancy
                   </button>
                 </div>
               </div>
@@ -483,12 +484,12 @@ export default function DashboardView({
                         {txStatus === 'pending' ? (
                           <div className="flex items-center gap-1">
                             <span className="badge badge-warning mono" style={{ fontSize: 10, padding: '2px 5px' }}>
-                              ⏳ Pending
+                              PENDING
                             </span>
                             {isThisMyTx && onConfirmTransaction && (
                               <button
                                 type="button"
-                                className="btn btn-primary btn-sm"
+                                className="btn btn-primary btn-sm mono"
                                 style={{ fontSize: 9, padding: '1px 5px', lineHeight: 1.2 }}
                                 onClick={() => onConfirmTransaction(tx.id, 'verified', 'Confirmed by investor')}
                               >
@@ -498,11 +499,11 @@ export default function DashboardView({
                           </div>
                         ) : txStatus === 'disputed' ? (
                           <span className="badge badge-loss mono" style={{ fontSize: 10, padding: '2px 5px' }} title={tx.verificationNotes || 'Disputed'}>
-                            ⚠️ Disputed
+                            DISPUTED
                           </span>
                         ) : (
                           <span className="badge badge-profit mono" style={{ fontSize: 10, padding: '2px 5px' }}>
-                            ✓ Verified
+                            VERIFIED
                           </span>
                         )}
                       </td>

@@ -233,8 +233,8 @@ export default function SyndicateView({
           <div className="flex items-center gap-2">
             <span className="section-title">Transactions Ledger</span>
             {transactions.filter(t => t.status === 'pending').length > 0 && (
-              <span className="badge badge-warning mono text-xs" style={{ padding: '2px 7px' }}>
-                ⏳ {transactions.filter(t => t.status === 'pending').length} Pending Confirmation
+              <span className="badge badge-warning mono text-xs font-semibold" style={{ padding: '2px 7px' }}>
+                PENDING CONFIRMATION: {transactions.filter(t => t.status === 'pending').length}
               </span>
             )}
           </div>
@@ -350,12 +350,12 @@ export default function SyndicateView({
                         {txStatus === 'pending' ? (
                           <div className="flex items-center gap-1">
                             <span className="badge badge-warning mono" style={{ fontSize: 10, padding: '2px 5px' }}>
-                              ⏳ Pending
+                              PENDING
                             </span>
                             {(isThisMyTx || !isInvestor) && onConfirmTransaction && (
                               <button
                                 type="button"
-                                className="btn btn-primary btn-sm"
+                                className="btn btn-primary btn-sm mono"
                                 style={{ fontSize: 9, padding: '1px 5px', lineHeight: 1.2 }}
                                 title="Confirm receipt"
                                 onClick={() => onConfirmTransaction(tx.id, 'verified', isInvestor ? 'Confirmed by investor' : 'Verified by manager')}
@@ -366,11 +366,11 @@ export default function SyndicateView({
                           </div>
                         ) : txStatus === 'disputed' ? (
                           <span className="badge badge-loss mono" style={{ fontSize: 10, padding: '2px 5px' }} title={tx.verificationNotes || 'Disputed'}>
-                            ⚠️ Disputed
+                            DISPUTED
                           </span>
                         ) : (
                           <span className="badge badge-profit mono" style={{ fontSize: 10, padding: '2px 5px' }}>
-                            ✓ Verified
+                            VERIFIED
                           </span>
                         )}
                       </td>

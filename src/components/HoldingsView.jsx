@@ -342,7 +342,7 @@ export default function HoldingsView({
                 disabled={isBatchSyncing || holdings.length === 0}
                 title="Auto-fetch live NSE/BSE stock and AMFI mutual fund prices in 1 batch"
               >
-                {isBatchSyncing ? '⚡ Syncing...' : '⚡ Sync Live Prices'}
+                {isBatchSyncing ? 'SYNCING...' : 'SYNC LIVE PRICES'}
               </button>
               <button
                 type="button"
@@ -430,19 +430,19 @@ export default function HoldingsView({
                             />
                             <button
                               type="button"
-                              className="btn btn-primary btn-sm"
-                              style={{ padding: '2px 5px', fontSize: 10 }}
+                              className="btn btn-primary btn-sm mono"
+                              style={{ padding: '2px 6px', fontSize: 10 }}
                               onClick={() => handleInlineUnitsSave(ast)}
                             >
-                              ✓
+                              Save
                             </button>
                             <button
                               type="button"
-                              className="btn btn-secondary btn-sm"
-                              style={{ padding: '2px 5px', fontSize: 10 }}
+                              className="btn btn-secondary btn-sm mono"
+                              style={{ padding: '2px 6px', fontSize: 10 }}
                               onClick={() => setInlineUnitsEditingId(null)}
                             >
-                              ✕
+                              Cancel
                             </button>
                           </div>
                         ) : ast.units && Number(ast.units) > 0 ? (
@@ -492,7 +492,7 @@ export default function HoldingsView({
                             />
                             <button
                               type="button"
-                              className="btn btn-primary btn-sm"
+                              className="btn btn-primary btn-sm mono"
                               style={{ padding: '2px 6px', fontSize: 10 }}
                               onClick={() => handleInlineSave(ast)}
                             >
@@ -500,11 +500,11 @@ export default function HoldingsView({
                             </button>
                             <button
                               type="button"
-                              className="btn btn-secondary btn-sm"
+                              className="btn btn-secondary btn-sm mono"
                               style={{ padding: '2px 6px', fontSize: 10 }}
                               onClick={() => setInlineEditingId(null)}
                             >
-                              ✕
+                              Cancel
                             </button>
                           </div>
                         ) : (
@@ -576,16 +576,16 @@ export default function HoldingsView({
                             </button>
                             <button
                               type="button"
-                              className="btn btn-secondary btn-sm"
+                              className="btn btn-secondary btn-sm mono"
                               style={{ padding: '2px 6px', fontSize: 11 }}
                               onClick={() => handleDelete(ast.id)}
                             >
-                              ✕
+                              Del
                             </button>
                           </div>
                         ) : (
                           <span className="badge badge-neutral mono" style={{ fontSize: 10, padding: '2px 6px' }}>
-                            ✓ Backing
+                            ASSET BACKING
                           </span>
                         )}
                       </td>
@@ -613,7 +613,7 @@ export default function HoldingsView({
                   <label className="form-label" style={{ marginBottom: 0 }}>Investment / Scheme Name</label>
                   {category === 'Mutual Funds / ETFs' && (
                     <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-                      ⚡ Type 2+ characters for live AMFI suggestions
+                      Type 2+ characters for live AMFI suggestions
                     </span>
                   )}
                 </div>
@@ -730,7 +730,7 @@ export default function HoldingsView({
                     onClick={handleFetchSingleQuote}
                     disabled={isFetchingSingleQuote || (!ticker.trim() && !name.trim())}
                   >
-                    {isFetchingSingleQuote ? 'Fetching...' : '⚡ Fetch Live Price'}
+                    {isFetchingSingleQuote ? 'FETCHING...' : 'FETCH LIVE PRICE'}
                   </button>
                 </div>
               </div>
@@ -791,7 +791,7 @@ export default function HoldingsView({
           <div className="modal-content" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
             <div className="section-head mb-3">
               <div>
-                <span className="section-title">⚡ Live Market Price Synchronizer</span>
+                <span className="section-title">Live Market Price Synchronizer</span>
                 <span className="text-xs text-muted block">
                   1-Click Batch Sync via IndianAPI (NSE/BSE) & AMFI Free Data Feeds
                 </span>
@@ -855,7 +855,7 @@ export default function HoldingsView({
                   {batchSummary && (
                     <div className="card p-3 mb-3 text-xs">
                       <div className="font-semibold text-profit mb-2 mono">
-                        ✓ Sync Complete! Updated {batchSummary.totalUpdated} of {batchSummary.results.length} mutual funds to latest official AMFI NAVs.
+                        Sync Complete: Updated {batchSummary.totalUpdated} of {batchSummary.results.length} mutual funds to latest official AMFI NAVs.
                       </div>
                       <div className="table-responsive" style={{ maxHeight: 220 }}>
                         <table className="dense-table text-xs">

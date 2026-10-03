@@ -240,7 +240,7 @@ export default function AuthGateway({ onAuthenticated, onGuestAccess, onBackToLa
             fontSize: '11px',
           }}>
             <div style={{ fontWeight: 600, color: '#eab308', marginBottom: '4px' }}>
-              ⚠️ Supabase Anon Key Required
+              [SETUP] Supabase Anon Key Required
             </div>
             <p style={{ color: 'var(--text-secondary)', margin: '0 0 8px 0', lineHeight: 1.4 }}>
               Paste your Supabase <code style={{ color: 'var(--text-primary)', background: 'var(--bg-subtle)', padding: '1px 4px', borderRadius: '3px' }}>anon / public</code> key from Project Settings → API:

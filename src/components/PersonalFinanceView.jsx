@@ -190,11 +190,11 @@ export default function PersonalFinanceView({
                     <td className="text-right">
                       <button
                         type="button"
-                        className="btn btn-secondary btn-sm"
-                        style={{ padding: '1px 5px', fontSize: 10 }}
+                        className="btn btn-secondary btn-sm mono"
+                        style={{ padding: '1px 6px', fontSize: 10 }}
                         onClick={() => handleDeleteIncome(inc.id)}
                       >
-                        ✕
+                        Del
                       </button>
                     </td>
                   </tr>
@@ -236,11 +236,11 @@ export default function PersonalFinanceView({
                     <td className="text-right">
                       <button
                         type="button"
-                        className="btn btn-secondary btn-sm"
-                        style={{ padding: '1px 5px', fontSize: 10 }}
+                        className="btn btn-secondary btn-sm mono"
+                        style={{ padding: '1px 6px', fontSize: 10 }}
                         onClick={() => handleDeleteSoloAsset(ast.id)}
                       >
-                        ✕
+                        Del
                       </button>
                     </td>
                   </tr>
