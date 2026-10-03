@@ -79,6 +79,10 @@ export default function App() {
         setSession(newSession);
         if (newSession) {
           setIsGuestMode(false);
+          // Clean up URL hash after Google OAuth redirect
+          if (window.location.hash && window.location.hash.includes('access_token')) {
+            window.history.replaceState(null, document.title, window.location.pathname + window.location.search);
+          }
         }
       }
     });

@@ -547,6 +547,19 @@ export async function signUpWithEmail(email, password) {
   return data;
 }
 
+export async function signInWithGoogle() {
+  const sb = getSupabase();
+  if (!sb) throw new Error('Supabase is not configured yet. Check your URL and Key in Settings.');
+  const { data, error } = await sb.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: window.location.origin,
+    }
+  });
+  if (error) throw error;
+  return data;
+}
+
 export async function signOutUser() {
   const sb = getSupabase();
   if (!sb) return;
