@@ -306,7 +306,10 @@ export function computeFundState(fundInfo, members, transactions, holdings = [])
       }
     } else if (isDeposit) {
       const navAtTx = tx.nav || currentNav || fundInfo.initialNav || 100.0;
-      const unitsCreated = tx.units || (navAtTx > 0 ? tx.amount / navAtTx : 0);
+      // Derive exact units from amount / navAtTx to avoid database decimal truncation
+      const unitsCreated = (navAtTx > 0 && tx.amount > 0)
+        ? (tx.amount / navAtTx)
+        : (Number(tx.units) || 0);
 
       totalUnits += unitsCreated;
       totalDeposited += tx.amount;
@@ -325,7 +328,9 @@ export function computeFundState(fundInfo, members, transactions, holdings = [])
       }
     } else if (isWithdrawal) {
       const navAtTx = tx.nav || currentNav || fundInfo.initialNav || 100.0;
-      const unitsRedeemed = tx.units || (navAtTx > 0 ? tx.amount / navAtTx : 0);
+      const unitsRedeemed = (navAtTx > 0 && tx.amount > 0)
+        ? (tx.amount / navAtTx)
+        : (Number(tx.units) || 0);
 
       totalUnits = Math.max(0, totalUnits - unitsRedeemed);
       totalWithdrawn += tx.amount;
@@ -407,8 +412,11 @@ export function computeFundState(fundInfo, members, transactions, holdings = [])
     const netInvested = deposited - withdrawn;
     
     // Profit = (Current Value + Withdrawn Amount) - Deposited
-    const totalProfit = (currentValue + withdrawn) - deposited;
-    const roiPercentage = deposited > 0 ? (totalProfit / deposited) * 100 : 0;
+    let totalProfit = (currentValue + withdrawn) - deposited;
+    if (Math.abs(totalProfit) < 0.01) totalProfit = 0; // eliminate sub-cent floating point epsilon
+    
+    let roiPercentage = deposited > 0 ? (totalProfit / deposited) * 100 : 0;
+    if (Math.abs(roiPercentage) < 0.001) roiPercentage = 0;
     const ownershipPct = totalUnits > 0 ? (units / totalUnits) * 100 : 0;
 
     return {
@@ -430,8 +438,10 @@ export function computeFundState(fundInfo, members, transactions, holdings = [])
   // Calculate Fund Totals
   const totalFundDeposited = computedMembers.reduce((acc, m) => acc + m.totalDeposited, 0);
   const totalFundWithdrawn = computedMembers.reduce((acc, m) => acc + m.totalWithdrawn, 0);
-  const totalFundNetProfit = (totalFundAUM + totalFundWithdrawn) - totalFundDeposited;
-  const totalFundRoiPct = totalFundDeposited > 0 ? (totalFundNetProfit / totalFundDeposited) * 100 : 0;
+  let totalFundNetProfit = (totalFundAUM + totalFundWithdrawn) - totalFundDeposited;
+  if (Math.abs(totalFundNetProfit) < 0.01) totalFundNetProfit = 0;
+  let totalFundRoiPct = totalFundDeposited > 0 ? (totalFundNetProfit / totalFundDeposited) * 100 : 0;
+  if (Math.abs(totalFundRoiPct) < 0.001) totalFundRoiPct = 0;
 
   // Personal vs Outside Capital Breakdown
   const selfMember = computedMembers.find((m) => m.relationship === "self");
@@ -464,7 +474,8 @@ export function computeFundState(fundInfo, members, transactions, holdings = [])
  * Format currency with locale and symbol
  */
 export function formatCurrency(amount, currencyCode = 'INR', options = {}) {
-  const num = Number(amount) || 0;
+  let num = Number(amount) || 0;
+  if (Math.abs(num) < 0.01) num = 0;
   const curr = CURRENCIES[currencyCode] || CURRENCIES.INR;
   
   const maximumFractionDigits = options.decimals !== undefined ? options.decimals : 2;
@@ -486,7 +497,8 @@ export function formatCurrency(amount, currencyCode = 'INR', options = {}) {
  * Format general numbers (NAV, Units, Percentages)
  */
 export function formatNumber(val, decimals = 2) {
-  const num = Number(val) || 0;
+  let num = Number(val) || 0;
+  if (Math.abs(num) < 0.0001) num = 0;
   return num.toLocaleString(undefined, {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
