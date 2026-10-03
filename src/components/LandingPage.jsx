@@ -94,7 +94,7 @@ export default function LandingPage({
           margin: '0 0 16px 0',
           color: 'var(--text-primary)',
         }}>
-          Unitized Capital Ledger for Co-Invested Wealth.
+          Unitized Capital Ledger.
         </h1>
 
         <p style={{
