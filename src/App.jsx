@@ -30,6 +30,7 @@ import {
 import Navbar from './components/Navbar';
 import DashboardView from './components/DashboardView';
 import AuthGateway from './components/AuthGateway';
+import LandingPage from './components/LandingPage';
 
 // Code-split secondary views & modals for faster load and smaller initial bundle
 const SyndicateView = lazy(() => import('./components/SyndicateView'));
@@ -65,6 +66,7 @@ export default function App() {
   };
 
   const [session, setSession] = useState(() => getCachedAuthSession());
+  const [viewMode, setViewMode] = useState(() => getCachedAuthSession() ? 'app' : 'landing');
   const [isAuthChecking, setIsAuthChecking] = useState(() => !getCachedAuthSession());
 
   useEffect(() => {
@@ -104,6 +106,7 @@ export default function App() {
       if (isMounted) {
         if (newSession) {
           setSession(newSession);
+          setViewMode('app');
           try {
             localStorage.setItem('syndicate_cached_session', JSON.stringify(newSession));
           } catch (e) {}
@@ -137,6 +140,7 @@ export default function App() {
       localStorage.removeItem('syndicate_cached_funds_list');
     } catch (e) {}
     setSession(null);
+    setViewMode('landing');
     setAppState({
       fundInfo: { name: 'Syndicate Pool', managerName: 'Manager', initialNav: 100, currency: 'INR' },
       members: [],
@@ -662,18 +666,32 @@ export default function App() {
     );
   }
 
-  // 2. Unauthenticated: directly render AuthGateway without blank screen or dev page loop
+  // 2. Unauthenticated: render Landing Page
+  if (!session && viewMode === 'landing') {
+    return (
+      <LandingPage
+        onLaunchTerminal={() => setViewMode('auth')}
+        theme={theme}
+        toggleTheme={toggleTheme}
+        isAuthenticated={Boolean(session)}
+      />
+    );
+  }
+
+  // 3. Unauthenticated: render AuthGateway
   if (!session) {
     return (
       <AuthGateway
         onAuthenticated={(newSession) => {
           const validSession = newSession?.user ? newSession : { user: newSession };
           setSession(validSession);
+          setViewMode('app');
           try {
             localStorage.setItem('syndicate_cached_session', JSON.stringify(validSession));
           } catch (e) {}
           refreshFromSupabase(null, true);
         }}
+        onBackToLanding={() => setViewMode('landing')}
       />
     );
   }
