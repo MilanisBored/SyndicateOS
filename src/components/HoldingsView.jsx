@@ -407,7 +407,7 @@ export default function HoldingsView({
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <span className="badge badge-warning mono font-semibold" style={{ fontSize: 10 }}>
-                  🔒 DISCRETIONARY TRUST MANDATE
+                  DISCRETIONARY TRUST MANDATE
                 </span>
                 <span className="badge badge-neutral mono" style={{ fontSize: 9 }}>
                   CONFIDENTIAL PORTFOLIO
@@ -741,7 +741,7 @@ export default function HoldingsView({
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="section-head mb-3">
               <span className="section-title">{editingAsset ? 'Edit Position' : 'New Position / FD'}</span>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setIsEditing(false)}>✕</button>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setIsEditing(false)}>Cancel</button>
             </div>
 
             <form onSubmit={handleSave}>
@@ -935,11 +935,11 @@ export default function HoldingsView({
               </div>
               <button 
                 type="button" 
-                className="btn btn-secondary btn-sm" 
+                className="btn btn-secondary btn-sm mono" 
                 onClick={() => setIsSyncModalOpen(false)}
                 disabled={isBatchSyncing}
               >
-                ✕
+                Close
               </button>
             </div>
 

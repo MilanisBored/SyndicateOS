@@ -64,7 +64,7 @@ export default function SyndicateView({
       {/* Top Header */}
       <div className="section-head mb-3">
         <div>
-          <span className="section-title">Syndicate Participants</span>
+          <h2 className="section-title">Syndicate Participants</h2>
           <span className="text-xs text-muted block">
             Unitized pool: capital entries and redemptions buy/redeem units at current NAV.
           </span>
@@ -140,62 +140,69 @@ export default function SyndicateView({
               style={isThisMe ? { border: '1px solid var(--accent)', boxShadow: '0 0 0 1px var(--accent)' } : {}}
             >
               <div className="member-box-head">
-                <div>
-                  <span className="font-semibold text-base flex items-center gap-2">
-                    {displayName}
+                <div className="flex-1 min-w-0 pr-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-sm truncate">{displayName}</span>
                     {isThisMe && (
                       <span className="badge badge-profit mono" style={{ fontSize: 9, padding: '1px 5px' }}>
                         You
                       </span>
                     )}
-                    {isPending && (
-                      <span className="badge badge-warning mono font-semibold" style={{ fontSize: 9, padding: '1px 5px' }}>
-                        INVITED (PENDING)
-                      </span>
-                    )}
-                  </span>
-                  <span className="text-xs text-muted">
+                  </div>
+                  <span className="text-xs text-muted block mt-0.5">
                     {member.role}
-                    {isPending && ' • Awaiting member handshake'}
                   </span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="shrink-0">
                   <span className="badge badge-neutral mono font-semibold">
                     {formatNumber(member.ownershipPct, 1)}%
                   </span>
-                  {isPending && !isInvestor && (
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm mono"
-                      style={{ padding: '2px 8px', fontSize: 11 }}
-                      title="Copy invitation link & message to send to your friend"
-                      onClick={() => {
-                        const appUrl = window.location.origin;
-                        const msg = `Hey ${member.name}! I've invited you to join my investment syndicate on SyndicateOS. Open this link, sign in with your email (${member.email}), and accept your invite: ${appUrl}`;
-                        if (navigator.clipboard) {
-                          navigator.clipboard.writeText(msg);
-                          alert(`Invite message copied to clipboard! Send this to ${member.name} via WhatsApp or Email.`);
-                        } else {
-                          prompt('Copy this invite message:', msg);
-                        }
-                      }}
-                    >
-                      📋 Copy Invite
-                    </button>
-                  )}
-                  {!isInvestor && member.relationship !== 'self' && onDeleteMember && (
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      style={{ color: 'var(--loss)', borderColor: 'rgba(239, 68, 68, 0.3)', padding: '2px 8px', fontSize: 11 }}
-                      title={`Remove ${member.name} from syndicate`}
-                      onClick={() => setMemberForDeletion(member)}
-                    >
-                      Remove
-                    </button>
-                  )}
                 </div>
               </div>
+
+              {isPending && (
+                <div className="member-pending-strip">
+                  <div className="member-pending-strip-top">
+                    <span className="badge badge-warning mono font-semibold" style={{ fontSize: 9, padding: '1px 5px' }}>
+                      INVITED (PENDING)
+                    </span>
+                    <span className="text-xs text-muted">Awaiting handshake</span>
+                  </div>
+                  {!isInvestor && (
+                    <div className="member-pending-strip-actions">
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm mono flex-1"
+                        style={{ padding: '3px 8px', fontSize: 11 }}
+                        title="Copy invitation link & message to send to your friend"
+                        onClick={() => {
+                          const appUrl = window.location.origin;
+                          const msg = `Hey ${member.name}! I've invited you to join my investment syndicate on SyndicateOS. Open this link, sign in with your email (${member.email}), and accept your invite: ${appUrl}`;
+                          if (navigator.clipboard) {
+                            navigator.clipboard.writeText(msg);
+                            alert(`Invite message copied to clipboard! Send this to ${member.name} via WhatsApp or Email.`);
+                          } else {
+                            prompt('Copy this invite message:', msg);
+                          }
+                        }}
+                      >
+                        Copy Invite
+                      </button>
+                      {member.relationship !== 'self' && onDeleteMember && (
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm btn-danger-subtle"
+                          style={{ padding: '3px 8px', fontSize: 11 }}
+                          title={`Cancel invitation for ${member.name}`}
+                          onClick={() => setMemberForDeletion(member)}
+                        >
+                          Cancel
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="member-box-data">
                 <div className="data-col">
@@ -227,13 +234,26 @@ export default function SyndicateView({
               </div>
 
               <div className="flex justify-between items-center pt-2">
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => onSelectMember(member)}
-                >
-                  Statement
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => onSelectMember(member)}
+                  >
+                    Statement
+                  </button>
+                  {!isInvestor && !isPending && member.relationship !== 'self' && onDeleteMember && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm btn-danger-subtle"
+                      style={{ padding: '2px 8px', fontSize: 11 }}
+                      title={`Remove ${member.name} from syndicate`}
+                      onClick={() => setMemberForDeletion(member)}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
                 {!isInvestor && (
                   <div className="flex gap-1">
                     <button

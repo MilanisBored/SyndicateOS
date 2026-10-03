@@ -133,8 +133,7 @@ export default function Navbar({
                 onClick={onRefreshCloud}
                 title="Connected to Supabase PostgreSQL (Click to refresh)"
               >
-                <span className="status-dot-pulse">●</span>
-                <span className="badge-text">{isLoadingCloud ? 'Syncing...' : 'Supabase Live'}</span>
+                <span className="badge-text">{isLoadingCloud ? 'SYNCING...' : 'LIVE DB'}</span>
               </button>
             ) : (
               <button
@@ -143,7 +142,7 @@ export default function Navbar({
                 onClick={() => setActiveTab('settings')}
                 title="Using Local Storage (Click to connect Supabase)"
               >
-                ○ Local DB
+                LOCAL DB
               </button>
             )}
 
@@ -262,7 +261,7 @@ export default function Navbar({
                 className="nav-tab-btn nav-tab-about"
                 title="View SyndicateOS Landing Page"
               >
-                About ↗
+                About
               </button>
             )}
           </nav>

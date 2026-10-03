@@ -177,7 +177,7 @@ export default function SettingsView({
           <div className="section-head mb-2">
             <span className="font-semibold text-xs text-muted uppercase">Supabase Cloud PostgreSQL</span>
             <span className={`badge ${isConnected ? 'badge-profit' : 'badge-neutral'} mono`}>
-              {isConnected ? '● Connected' : '○ Local Storage'}
+              {isConnected ? 'CONNECTED' : 'LOCAL STORAGE'}
             </span>
           </div>
 
@@ -335,13 +335,13 @@ export default function SettingsView({
               className="form-select"
             >
               <option value="private">
-                🔒 Private / Confidential (Recommended - Discretionary Mandate)
+                Private / Confidential (Recommended - Discretionary Mandate)
               </option>
               <option value="summary">
-                📊 Summary (Asset Class Breakdown only)
+                Summary (Asset Class Breakdown only)
               </option>
               <option value="transparent">
-                👁️ Transparent (Open-Book - All tickers visible to all members)
+                Transparent (Open-Book - All tickers visible to all members)
               </option>
             </select>
             <span className="text-xs text-muted block mt-1">

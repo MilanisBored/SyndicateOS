@@ -48,7 +48,7 @@ export default function CreateFundModal({ isOpen, onClose, onCreateFund, current
               Launch a new multi-investor pooled portfolio as Fund Manager.
             </span>
           </div>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>✕</button>
+          <button type="button" className="btn btn-secondary btn-sm mono" onClick={onClose}>Close</button>
         </div>
 
         {error && (

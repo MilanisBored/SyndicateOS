@@ -45,10 +45,10 @@ export default function StatementModal({
             </button>
             <button
               type="button"
-              className="btn btn-secondary btn-sm"
+              className="btn btn-secondary btn-sm mono"
               onClick={onClose}
             >
-              ✕
+              Close
             </button>
           </div>
         </div>

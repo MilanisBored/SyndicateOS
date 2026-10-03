@@ -94,7 +94,7 @@ export default function LandingPage({
               fontWeight: 500,
             }}
           >
-            {isAuthenticated ? 'Open SyndicateOS →' : 'Launch SyndicateOS →'}
+            {isAuthenticated ? 'Open SyndicateOS' : 'Launch SyndicateOS'}
           </button>
         </div>
       </main>

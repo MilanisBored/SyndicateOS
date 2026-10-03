@@ -145,7 +145,7 @@ export default function ActionCenterModal({
             onClick={onClose}
             title="Close (Esc)"
           >
-            ✕
+            Close
           </button>
         </div>
 
@@ -184,7 +184,7 @@ export default function ActionCenterModal({
             {pendingInvitations.length > 0 && (
               <div className="mb-2">
                 <span className="text-xs font-semibold mono text-amber block mb-2 flex items-center gap-1">
-                  <span>📩 SYNDICATE INVITATIONS AWAITING ACCEPTANCE ({pendingInvitations.length})</span>
+                  <span>SYNDICATE INVITATIONS AWAITING ACCEPTANCE ({pendingInvitations.length})</span>
                 </span>
                 {pendingInvitations.map((inv) => (
                   <div 
@@ -226,7 +226,7 @@ export default function ActionCenterModal({
                         style={{ fontSize: 11, padding: '3px 14px' }}
                         onClick={() => onAcceptInvitation(inv)}
                       >
-                        ✓ Accept & Connect
+                        Accept & Connect
                       </button>
                     </div>
                   </div>
@@ -259,7 +259,7 @@ export default function ActionCenterModal({
                       style={{ fontSize: 10, padding: '3px 8px' }}
                       onClick={() => handleCopyInviteLink(m)}
                     >
-                      📋 Copy Invite Link
+                      Copy Invite Link
                     </button>
                   </div>
                 ))}
@@ -269,7 +269,7 @@ export default function ActionCenterModal({
             {/* 3. Pending Transaction Verifications */}
             {pendingItems.length === 0 && pendingInvitations.length === 0 && outgoingPendingMembers.length === 0 ? (
               <div className="p-4 text-center text-muted card text-xs" style={{ background: 'var(--bg-subtle)' }}>
-                <span className="mono font-semibold block text-sm mb-1 text-primary">✓ ALL CLEAR</span>
+                <span className="mono font-semibold block text-sm mb-1 text-primary">ALL CLEAR</span>
                 No pending transfer verifications, approvals, or invitations awaiting review.
               </div>
             ) : (
@@ -352,7 +352,7 @@ export default function ActionCenterModal({
                         onClick={() => handleConfirm(tx.id)}
                         title="Confirm audit match and finalize units"
                       >
-                        ✓ Confirm & Verify
+                        Confirm & Verify
                       </button>
                     </div>
                   )}
@@ -367,7 +367,7 @@ export default function ActionCenterModal({
           <div className="flex flex-col gap-2">
             {disputedItems.length === 0 ? (
               <div className="p-4 text-center text-muted card text-xs" style={{ background: 'var(--bg-subtle)' }}>
-                <span className="mono font-semibold block text-sm mb-1 text-primary">✓ NO DISPUTES</span>
+                <span className="mono font-semibold block text-sm mb-1 text-primary">NO DISPUTES</span>
                 There are no rejected or disputed transactions. All ledger records match.
               </div>
             ) : (

@@ -701,7 +701,7 @@ export default function App() {
             style={{ fontSize: 11, padding: '3px 12px' }}
             onClick={() => setIsActionCenterOpen(true)}
           >
-            Review & Connect →
+            Review & Connect
           </button>
         </div>
       )}

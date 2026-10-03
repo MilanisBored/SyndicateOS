@@ -73,7 +73,7 @@ export default function TransactionModal({
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="section-head mb-3">
           <span className="section-title">New Transaction</span>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>✕</button>
+          <button type="button" className="btn btn-secondary btn-sm mono" onClick={onClose}>Close</button>
         </div>
 
         {/* Transaction Type Toggle */}

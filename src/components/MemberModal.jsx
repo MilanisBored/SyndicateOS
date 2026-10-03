@@ -66,10 +66,10 @@ export default function MemberModal({ onAddMember, onClose }) {
           <div>
             <div className="section-head mb-3">
               <div>
-                <span className="section-title">Syndicate Invitation Created!</span>
-                <span className="text-xs text-profit block mt-1">✓ Added to syndicate roster</span>
+                <span className="section-title">Syndicate Invitation Created</span>
+                <span className="text-xs text-profit block mt-1">Added to syndicate roster</span>
               </div>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>✕</button>
+              <button type="button" className="btn btn-secondary btn-sm mono" onClick={onClose}>Close</button>
             </div>
 
             <div className="card p-3 mb-3" style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border-color)' }}>
@@ -87,28 +87,25 @@ export default function MemberModal({ onAddMember, onClose }) {
               <div className="flex flex-col gap-2">
                 <button
                   type="button"
-                  className="btn btn-primary btn-sm flex items-center justify-center gap-2"
+                  className="btn btn-primary btn-sm flex items-center justify-center mono"
                   onClick={handleCopyLink}
                 >
-                  <span>📋</span>
-                  <span>{copied ? '✓ Copied to Clipboard!' : 'Copy Invite Message'}</span>
+                  {copied ? 'Copied to Clipboard' : 'Copy Invite Message'}
                 </button>
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    className="btn btn-secondary btn-sm flex-1 flex items-center justify-center gap-1"
+                    className="btn btn-secondary btn-sm flex-1 mono"
                     onClick={handleWhatsAppShare}
                   >
-                    <span>💬</span>
-                    <span>Share on WhatsApp</span>
+                    Share via WhatsApp
                   </button>
                   <button
                     type="button"
-                    className="btn btn-secondary btn-sm flex-1 flex items-center justify-center gap-1"
+                    className="btn btn-secondary btn-sm flex-1 mono"
                     onClick={handleEmailShare}
                   >
-                    <span>✉️</span>
-                    <span>Open Email Draft</span>
+                    Share via Email
                   </button>
                 </div>
               </div>
@@ -124,7 +121,7 @@ export default function MemberModal({ onAddMember, onClose }) {
           <div>
             <div className="section-head mb-3">
               <span className="section-title">Add Participant</span>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>✕</button>
+              <button type="button" className="btn btn-secondary btn-sm mono" onClick={onClose}>Close</button>
             </div>
 
             <form onSubmit={handleSubmit}>
@@ -202,7 +199,7 @@ export default function MemberModal({ onAddMember, onClose }) {
             style={{ background: 'rgba(99, 102, 241, 0.05)', border: '1px solid rgba(99, 102, 241, 0.2)' }}
           >
             <div className="font-semibold text-primary mb-1 flex items-center gap-1">
-              <span>🔒 DISCRETIONARY MANDATE & PORTFOLIO PRIVACY</span>
+              <span>DISCRETIONARY MANDATE & PORTFOLIO PRIVACY</span>
             </div>
             <span className="text-muted block leading-relaxed">
               Your specific stock picks, buy levels, and broker notes will remain <strong>strictly confidential</strong> from this investor unless you switch to transparent mode in Settings. Investors only track unitized NAV and asset class breakdown.

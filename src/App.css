@@ -33,6 +33,13 @@
 .gap-3 { gap: 12px; }
 .gap-4 { gap: 16px; }
 
+.block { display: block; }
+.inline-block { display: inline-block; }
+.shrink-0 { flex-shrink: 0; }
+.flex-1 { flex: 1 1 0%; }
+.min-w-0 { min-width: 0; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .text-right { text-align: right; }
 .text-center { text-align: center; }
 .text-xs { font-size: 11px; }
@@ -447,16 +454,19 @@
 .section-head {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-end;
   margin-bottom: 12px;
+  gap: 12px;
 }
 
 .section-title {
+  display: block;
   font-size: 12px;
   font-weight: 600;
   color: var(--text-primary);
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
+  margin-bottom: 3px;
 }
 
 /* Chart SVG */
@@ -488,7 +498,7 @@
 /* Member Cards Grid */
 .member-cards-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 310px), 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -498,6 +508,9 @@
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
 }
 
 .member-box-head {
@@ -505,6 +518,30 @@
   justify-content: space-between;
   align-items: flex-start;
   margin-bottom: 10px;
+  min-width: 0;
+}
+
+/* Member Pending State Strip */
+.member-pending-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(245, 158, 11, 0.06);
+  border: 1px dashed rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
+
+.member-pending-strip-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.member-pending-strip-actions {
+  display: flex;
+  gap: 6px;
 }
 
 .member-box-data {

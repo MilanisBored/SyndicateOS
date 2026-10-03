@@ -257,7 +257,7 @@ export default function PersonalFinanceView({
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="section-head mb-3">
               <span className="section-title">Add Income</span>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowAddIncome(false)}>✕</button>
+              <button type="button" className="btn btn-secondary btn-sm mono" onClick={() => setShowAddIncome(false)}>Cancel</button>
             </div>
             <form onSubmit={handleAddIncome}>
               <div className="form-group">
@@ -311,7 +311,7 @@ export default function PersonalFinanceView({
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="section-head mb-3">
               <span className="section-title">Add Solo Asset</span>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowAddSoloAsset(false)}>✕</button>
+              <button type="button" className="btn btn-secondary btn-sm mono" onClick={() => setShowAddSoloAsset(false)}>Cancel</button>
             </div>
             <form onSubmit={handleAddSoloAsset}>
               <div className="form-group">

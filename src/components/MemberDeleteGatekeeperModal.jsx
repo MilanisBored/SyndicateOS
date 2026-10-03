@@ -83,7 +83,7 @@ export default function MemberDeleteGatekeeperModal({
             className="btn btn-secondary btn-sm mono" 
             onClick={onClose}
           >
-            ✕
+            Close
           </button>
         </div>
 
@@ -263,7 +263,7 @@ export default function MemberDeleteGatekeeperModal({
                     onClick={handlePayoutAndRemove}
                     disabled={isProcessing}
                   >
-                    {isProcessing ? 'Processing Payout...' : `✓ Pay Out ${formatCurrency(memberEquity, currency, { decimals: 0 })} & Remove`}
+                    {isProcessing ? 'Processing Payout...' : `Pay Out ${formatCurrency(memberEquity, currency, { decimals: 0 })} & Remove`}
                   </button>
                 ) : (
                   <button 

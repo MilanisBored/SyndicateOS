@@ -122,7 +122,7 @@ export default function AuthGateway({ onAuthenticated, onGuestAccess, onBackToLa
               padding: 0,
             }}
           >
-            ← Back to Overview
+            Back to Overview
           </button>
         )}
 

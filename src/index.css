@@ -144,6 +144,25 @@ body {
   border-color: var(--border-hover);
 }
 
+.btn-danger-subtle {
+  background: var(--loss-subtle);
+  color: var(--loss);
+  border-color: rgba(239, 68, 68, 0.25);
+}
+.btn-danger-subtle:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: var(--loss);
+}
+
+.btn-danger {
+  background: var(--loss);
+  color: #ffffff;
+  border-color: var(--loss);
+}
+.btn-danger:hover {
+  opacity: 0.9;
+}
+
 .btn-sm {
   padding: 4px 8px;
   font-size: 11px;

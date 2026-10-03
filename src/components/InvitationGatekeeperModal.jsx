@@ -121,7 +121,7 @@ export default function InvitationGatekeeperModal({
                   disabled={isProcessing}
                   style={{ fontSize: 11, padding: '3px 14px' }}
                 >
-                  {isProcessing && processingId === inv.memberId ? 'Connecting...' : '✓ Accept & Connect'}
+                  {isProcessing && processingId === inv.memberId ? 'Connecting...' : 'Accept & Connect'}
                 </button>
               </div>
             </div>
