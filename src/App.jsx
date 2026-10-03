@@ -435,15 +435,11 @@ export default function App() {
     );
   }
 
-  // 2. Landing Page (Default first screen if not logged in and not in guest mode)
-  if (!session && !isGuestMode && viewMode === 'landing') {
+  // 2. Landing Page (Default first screen if not logged in)
+  if (!session && viewMode === 'landing') {
     return (
       <LandingPage
         onLaunchTerminal={() => setViewMode('auth')}
-        onGuestAccess={() => {
-          setIsGuestMode(true);
-          setViewMode('app');
-        }}
         theme={theme}
         toggleTheme={toggleTheme}
         isAuthenticated={Boolean(session)}
@@ -452,18 +448,13 @@ export default function App() {
   }
 
   // 3. Auth Gateway Login/Register Guard
-  if (!session && !isGuestMode && viewMode === 'auth') {
+  if (!session && viewMode === 'auth') {
     return (
       <AuthGateway
         onAuthenticated={(user) => {
           setSession({ user });
-          setIsGuestMode(false);
           setViewMode('app');
           refreshFromSupabase();
-        }}
-        onGuestAccess={() => {
-          setIsGuestMode(true);
-          setViewMode('app');
         }}
         onBackToLanding={() => setViewMode('landing')}
       />

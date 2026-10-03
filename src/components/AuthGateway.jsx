@@ -22,7 +22,11 @@ export default function AuthGateway({ onAuthenticated, onGuestAccess, onBackToLa
       await signInWithGoogle();
     } catch (err) {
       console.error('Google Auth Error:', err);
-      setErrorMsg(err.message || 'Failed to initialize Google login. Ensure Google provider is enabled in Supabase.');
+      let msg = err.message || 'Failed to initialize Google login.';
+      if (msg.includes('missing OAuth secret') || msg.includes('Unsupported provider')) {
+        msg = 'Google OAuth Setup Required: In your Supabase Dashboard (Authentication → Providers → Google), the "Client Secret" is missing. Please paste your Google Client Secret there, or sign in using Email & Password below.';
+      }
+      setErrorMsg(msg);
       setIsGoogleLoading(false);
     }
   };
@@ -376,24 +380,9 @@ export default function AuthGateway({ onAuthenticated, onGuestAccess, onBackToLa
           </button>
         </form>
 
-        {/* Footer info & Guest bypass */}
+        {/* Footer security badge */}
         <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid var(--border-subtle)', textAlign: 'center' }}>
-          <button
-            type="button"
-            onClick={onGuestAccess}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: 'var(--text-muted)',
-              fontSize: '11px',
-              cursor: 'pointer',
-              textDecoration: 'underline',
-              padding: '4px',
-            }}
-          >
-            Continue in Local Demo / Offline Mode →
-          </button>
-          <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '8px' }}>
+          <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
             Encrypted with Supabase JWT • End-to-end Ledger isolation
           </div>
         </div>
