@@ -634,6 +634,7 @@ export default function App() {
     (userEmail && m.email && m.email.toLowerCase().trim() === userEmail) ||
     m.id === appState.fundInfo?.myMemberId
   );
+  const isInvestorUser = effectivePerspective === 'investor' || appState.fundInfo?.userRole === 'investor';
   const pendingTxsCount = isInvestorUser && myMember
     ? appState.transactions.filter(t => (t.memberId === myMember.id || t.isMyTx) && t.status === 'pending').length
     : appState.transactions.filter(t => t.status === 'pending').length;
