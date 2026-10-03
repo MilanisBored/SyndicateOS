@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { signInWithEmail, signUpWithEmail, signInWithGoogle, isSupabaseConfigured } from '../lib/supabaseClient';
 
-export default function AuthGateway({ onAuthenticated, onGuestAccess }) {
+export default function AuthGateway({ onAuthenticated, onGuestAccess, onBackToLanding }) {
   const [mode, setMode] = useState('login'); // 'login' | 'signup'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -100,6 +100,27 @@ export default function AuthGateway({ onAuthenticated, onGuestAccess }) {
         padding: '32px 28px',
         boxShadow: '0 20px 40px rgba(0, 0, 0, 0.45)',
       }}>
+        {onBackToLanding && (
+          <button
+            type="button"
+            onClick={onBackToLanding}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--text-muted)',
+              fontSize: '12px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              marginBottom: '16px',
+              padding: 0,
+            }}
+          >
+            ← Back to Overview
+          </button>
+        )}
+
         {/* Terminal Header */}
         <div style={{ textAlign: 'center', marginBottom: '24px' }}>
           <div style={{

@@ -22,6 +22,7 @@ import {
 
 import Navbar from './components/Navbar';
 import AuthGateway from './components/AuthGateway';
+import LandingPage from './components/LandingPage';
 import DashboardView from './components/DashboardView';
 import SyndicateView from './components/SyndicateView';
 import HoldingsView from './components/HoldingsView';
@@ -51,7 +52,8 @@ export default function App() {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   };
 
-  // Auth Gateway State
+  // View & Auth Gateway State: 'landing' | 'auth' | 'app'
+  const [viewMode, setViewMode] = useState('landing');
   const [session, setSession] = useState(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
   const [isGuestMode, setIsGuestMode] = useState(false);
@@ -64,6 +66,7 @@ export default function App() {
         const currentSession = await getAuthSession();
         if (isMounted && currentSession) {
           setSession(currentSession);
+          setViewMode('app');
         }
       } catch (err) {
         console.error('Session check error:', err);
@@ -79,6 +82,7 @@ export default function App() {
         setSession(newSession);
         if (newSession) {
           setIsGuestMode(false);
+          setViewMode('app');
           // Clean up URL hash after Google OAuth redirect
           if (window.location.hash && window.location.hash.includes('access_token')) {
             window.history.replaceState(null, document.title, window.location.pathname + window.location.search);
@@ -101,6 +105,7 @@ export default function App() {
     }
     setSession(null);
     setIsGuestMode(false);
+    setViewMode('landing');
   };
 
   const isConnectedToCloud = isSupabaseConfigured();
@@ -430,18 +435,37 @@ export default function App() {
     );
   }
 
-  // 2. Auth Gateway Login/Register Guard
-  if (!session && !isGuestMode) {
+  // 2. Landing Page (Default first screen if not logged in and not in guest mode)
+  if (!session && !isGuestMode && viewMode === 'landing') {
+    return (
+      <LandingPage
+        onLaunchTerminal={() => setViewMode('auth')}
+        onGuestAccess={() => {
+          setIsGuestMode(true);
+          setViewMode('app');
+        }}
+        theme={theme}
+        toggleTheme={toggleTheme}
+        isAuthenticated={Boolean(session)}
+      />
+    );
+  }
+
+  // 3. Auth Gateway Login/Register Guard
+  if (!session && !isGuestMode && viewMode === 'auth') {
     return (
       <AuthGateway
         onAuthenticated={(user) => {
           setSession({ user });
           setIsGuestMode(false);
+          setViewMode('app');
           refreshFromSupabase();
         }}
         onGuestAccess={() => {
           setIsGuestMode(true);
+          setViewMode('app');
         }}
+        onBackToLanding={() => setViewMode('landing')}
       />
     );
   }
@@ -463,6 +487,7 @@ export default function App() {
         currentUser={session?.user}
         onSignOut={handleSignOut}
         isGuest={isGuestMode}
+        onOpenLanding={() => setViewMode('landing')}
       />
 
       {cloudError && (

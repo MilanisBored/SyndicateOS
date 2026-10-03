@@ -15,7 +15,8 @@ export default function Navbar({
   onRefreshCloud,
   currentUser,
   onSignOut,
-  isGuest
+  isGuest,
+  onOpenLanding
 }) {
   const tabs = [
     { id: 'dashboard', label: 'Overview' },
@@ -47,6 +48,17 @@ export default function Navbar({
               {tab.label}
             </button>
           ))}
+          {onOpenLanding && (
+            <button
+              type="button"
+              onClick={onOpenLanding}
+              className="nav-tab-btn"
+              title="View SyndicateOS Landing Page"
+              style={{ color: 'var(--text-muted)', fontSize: '12px' }}
+            >
+              About ↗
+            </button>
+          )}
         </nav>
 
         {/* Right Tools */}
