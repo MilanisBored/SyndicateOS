@@ -12,7 +12,10 @@ export default function Navbar({
   onOpenTransactionModal,
   isCloudConnected,
   isLoadingCloud,
-  onRefreshCloud
+  onRefreshCloud,
+  currentUser,
+  onSignOut,
+  isGuest
 }) {
   const tabs = [
     { id: 'dashboard', label: 'Overview' },
@@ -100,6 +103,28 @@ export default function Navbar({
           >
             + Transaction
           </button>
+
+          {/* User Auth Chip & Terminal Lock */}
+          {onSignOut && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '4px' }}>
+              <span 
+                className="badge badge-neutral mono"
+                style={{ fontSize: '10px', padding: '3px 7px', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                title={currentUser?.email || (isGuest ? 'Guest Mode' : 'Authenticated')}
+              >
+                {isGuest ? 'Guest' : (currentUser?.email?.split('@')[0] || 'User')}
+              </span>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{ padding: '3px 7px', fontSize: '11px' }}
+                onClick={onSignOut}
+                title="Lock Terminal / Sign Out"
+              >
+                🔒
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </header>

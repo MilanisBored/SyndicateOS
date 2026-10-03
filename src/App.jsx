@@ -14,10 +14,14 @@ import {
   deleteIncomeFromSupabase,
   insertSoloAssetToSupabase,
   deleteSoloAssetFromSupabase,
-  updateFundInSupabase 
+  updateFundInSupabase,
+  getAuthSession,
+  signOutUser,
+  onAuthChange
 } from './lib/supabaseClient';
 
 import Navbar from './components/Navbar';
+import AuthGateway from './components/AuthGateway';
 import DashboardView from './components/DashboardView';
 import SyndicateView from './components/SyndicateView';
 import HoldingsView from './components/HoldingsView';
@@ -45,6 +49,54 @@ export default function App() {
 
   const toggleTheme = () => {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  };
+
+  // Auth Gateway State
+  const [session, setSession] = useState(null);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
+  const [isGuestMode, setIsGuestMode] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function initAuth() {
+      try {
+        const currentSession = await getAuthSession();
+        if (isMounted && currentSession) {
+          setSession(currentSession);
+        }
+      } catch (err) {
+        console.error('Session check error:', err);
+      } finally {
+        if (isMounted) setIsAuthChecking(false);
+      }
+    }
+
+    initAuth();
+
+    const { data: authListener } = onAuthChange((event, newSession) => {
+      if (isMounted) {
+        setSession(newSession);
+        if (newSession) {
+          setIsGuestMode(false);
+        }
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      authListener?.subscription?.unsubscribe();
+    };
+  }, []);
+
+  const handleSignOut = async () => {
+    try {
+      await signOutUser();
+    } catch (e) {
+      console.error('Sign out error:', e);
+    }
+    setSession(null);
+    setIsGuestMode(false);
   };
 
   const isConnectedToCloud = isSupabaseConfigured();
@@ -353,6 +405,43 @@ export default function App() {
     ? fundMetrics.members.find((m) => m.id === selectedMemberForStatement.id) || selectedMemberForStatement
     : null;
 
+  // 1. Session initialization screen
+  if (isAuthChecking) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'var(--bg-app)',
+        color: 'var(--text-muted)',
+        fontFamily: 'var(--font-mono)',
+        fontSize: '12px'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e' }} />
+          INITIALIZING SYNDICATE_OS GATEWAY...
+        </div>
+      </div>
+    );
+  }
+
+  // 2. Auth Gateway Login/Register Guard
+  if (!session && !isGuestMode) {
+    return (
+      <AuthGateway
+        onAuthenticated={(user) => {
+          setSession({ user });
+          setIsGuestMode(false);
+          refreshFromSupabase();
+        }}
+        onGuestAccess={() => {
+          setIsGuestMode(true);
+        }}
+      />
+    );
+  }
+
   return (
     <div className="app-wrapper">
       <Navbar
@@ -367,6 +456,9 @@ export default function App() {
         isCloudConnected={isConnectedToCloud}
         isLoadingCloud={isLoadingCloud}
         onRefreshCloud={refreshFromSupabase}
+        currentUser={session?.user}
+        onSignOut={handleSignOut}
+        isGuest={isGuestMode}
       />
 
       {cloudError && (

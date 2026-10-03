@@ -527,3 +527,47 @@ export async function wipeSupabaseDatabase() {
   return true;
 }
 
+// ==========================================================================
+// SUPABASE AUTH GATEWAY METHODS
+// ==========================================================================
+
+export async function signInWithEmail(email, password) {
+  const sb = getSupabase();
+  if (!sb) throw new Error('Supabase is not configured yet. Check your URL and Key in Settings.');
+  const { data, error } = await sb.auth.signInWithPassword({ email: email.trim(), password });
+  if (error) throw error;
+  return data;
+}
+
+export async function signUpWithEmail(email, password) {
+  const sb = getSupabase();
+  if (!sb) throw new Error('Supabase is not configured yet. Check your URL and Key in Settings.');
+  const { data, error } = await sb.auth.signUp({ email: email.trim(), password });
+  if (error) throw error;
+  return data;
+}
+
+export async function signOutUser() {
+  const sb = getSupabase();
+  if (!sb) return;
+  const { error } = await sb.auth.signOut();
+  if (error) throw error;
+}
+
+export async function getAuthSession() {
+  const sb = getSupabase();
+  if (!sb) return null;
+  try {
+    const { data } = await sb.auth.getSession();
+    return data?.session || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+export function onAuthChange(callback) {
+  const sb = getSupabase();
+  if (!sb) return { data: { subscription: { unsubscribe: () => {} } } };
+  return sb.auth.onAuthStateChange(callback);
+}
+
