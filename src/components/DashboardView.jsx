@@ -222,109 +222,29 @@ export default function DashboardView({
               <span className="metric-label">Unit NAV Price</span>
               <span className="metric-val mono">{formatCurrency(fundMetrics.currentNav, currency, { decimals: 2 })}</span>
               <div className="metric-delta text-muted">
-                <span>{formatNumber(fundMetrics.totalUnits, 1)} total units</span>
+                <span>{formatNumber(fundMetrics.totalUnits, 1)} units • {timeRange}: {activeTimeframeMetric ? (activeTimeframeMetric.pct >= 0 ? '+' : '') + activeTimeframeMetric.pct + '%' : '100%'}</span>
               </div>
             </div>
 
             <div className="metric-cell">
-              <span className="metric-label">Manager Equity ({managerName})</span>
-              <span className="metric-val mono">{formatCurrency(fundMetrics.myStakeValue, currency)}</span>
+              <span className="metric-label">Invested Assets vs Cash</span>
+              <span className="metric-val mono">{formatCurrency(fundMetrics.holdingsTotal || 0, currency)}</span>
               <div className="metric-delta text-muted">
-                <span>{formatNumber((fundMetrics.myStakeValue / (fundMetrics.totalFundAUM || 1)) * 100, 1)}% ownership</span>
+                <span>Cash Reserve: {formatCurrency(fundMetrics.undeployedCash || 0, currency, { decimals: 0 })}</span>
               </div>
             </div>
 
             <div className="metric-cell">
-              <span className="metric-label">Investors Pool Capital</span>
-              <span className="metric-val mono">
-                {formatCurrency(fundMetrics.partnerStakeValue + fundMetrics.friendsStakeValue, currency)}
+              <span className="metric-label">Realized & Unrealized PnL</span>
+              <span className={`metric-val mono ${fundMetrics.unrealizedProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
+                {fundMetrics.unrealizedProfit >= 0 ? '+' : ''}{formatCurrency(fundMetrics.unrealizedProfit || 0, currency, { decimals: 0 })}
               </span>
               <div className="metric-delta text-muted">
-                <span>{Math.max(0, (fundMetrics.members || []).length - 1)} external investors</span>
+                <span>Booked: {fundMetrics.realizedProfit >= 0 ? '+' : ''}{formatCurrency(fundMetrics.realizedProfit || 0, currency, { decimals: 0 })}</span>
               </div>
             </div>
           </>
         )}
-      </div>
- 
-      {/* Institutional Balance Sheet & Performance Ribbon */}
-      <div className="card p-3 mb-3">
-        {/* Row 1: Multi-Timeframe Performance Matrix */}
-        <div className="flex items-center justify-between flex-wrap gap-2 pb-2 mb-2" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-          <div className="flex items-center gap-2">
-            <span className="text-xxs mono text-muted uppercase tracking-wider font-semibold">Timeframe Matrix</span>
-            <span className="badge badge-neutral mono" style={{ fontSize: 9 }}>MARK-TO-MARKET</span>
-          </div>
-
-          <div className="flex items-center gap-3 overflow-x-auto mono text-xs" style={{ scrollbarWidth: 'none' }}>
-            {['1D', '1W', '1M', 'YTD', 'ALL'].map((tfKey) => {
-              const tf = fundMetrics?.timeframes ? fundMetrics.timeframes[tfKey] : null;
-              const pct = tf ? tf.pct : 0;
-              const isSelected = timeRange === tfKey;
-              return (
-                <button
-                  key={tfKey}
-                  type="button"
-                  onClick={() => setTimeRange(tfKey)}
-                  className="flex items-center gap-1 cursor-pointer bg-transparent border-0 p-0 text-left"
-                  title={`Filter chart to ${tfKey} horizon`}
-                >
-                  <span className={`text-xxs uppercase ${isSelected ? 'text-primary font-bold' : 'text-muted'}`}>
-                    {tfKey === 'ALL' ? 'SI' : tfKey}:
-                  </span>
-                  <span className={`font-semibold ${pct >= 0 ? 'text-profit' : 'text-loss'} ${isSelected ? 'underline' : ''}`}>
-                    {pct >= 0 ? '+' : ''}{formatNumber(pct, 2)}%
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Row 2: Comprehensive Institutional Balance Sheet & PnL */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 pt-1 text-xs">
-          <div>
-            <span className="text-xxs text-muted mono uppercase tracking-wider block">Unrealized PnL (MTM)</span>
-            <span className={`mono font-semibold text-sm ${fundMetrics.unrealizedProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
-              {fundMetrics.unrealizedProfit >= 0 ? '+' : ''}{formatCurrency(fundMetrics.unrealizedProfit || 0, currency, { decimals: 0 })}
-            </span>
-            <span className="text-xxs text-muted mono block mt-0.5">
-              {fundMetrics.unrealizedRoiPct >= 0 ? '+' : ''}{formatNumber(fundMetrics.unrealizedRoiPct || 0, 1)}% on invested
-            </span>
-          </div>
-
-          <div>
-            <span className="text-xxs text-muted mono uppercase tracking-wider block">Realized PnL (Booked)</span>
-            <span className={`mono font-semibold text-sm ${(fundMetrics.realizedProfit || 0) >= 0 ? 'text-profit' : 'text-loss'}`}>
-              {(fundMetrics.realizedProfit || 0) >= 0 ? '+' : ''}{formatCurrency(fundMetrics.realizedProfit || 0, currency, { decimals: 0 })}
-            </span>
-            <span className="text-xxs text-muted mono block mt-0.5">Closed positions & exits</span>
-          </div>
-
-          <div>
-            <span className="text-xxs text-muted mono uppercase tracking-wider block">Invested Capital</span>
-            <span className="mono font-semibold text-sm text-secondary">
-              {formatCurrency(fundMetrics.holdingsTotal || 0, currency, { decimals: 0 })}
-            </span>
-            <span className="text-xxs text-muted mono block mt-0.5">Deployed across assets</span>
-          </div>
-
-          <div>
-            <span className="text-xxs text-muted mono uppercase tracking-wider block">Liquid Cash / Reserve</span>
-            <span className="mono font-semibold text-sm text-primary">
-              {formatCurrency(fundMetrics.undeployedCash || 0, currency, { decimals: 0 })}
-            </span>
-            <span className="text-xxs text-muted mono block mt-0.5">Dry powder & buffer</span>
-          </div>
-
-          <div>
-            <span className="text-xxs text-muted mono uppercase tracking-wider block">Total Balance Sheet (AUM)</span>
-            <span className="mono font-semibold text-sm text-primary">
-              {formatCurrency(fundMetrics.totalFundAUM || 0, currency, { decimals: 0 })}
-            </span>
-            <span className="text-xxs text-muted mono block mt-0.5">Net Asset Value total</span>
-          </div>
-        </div>
       </div>
 
       {/* Main Grid: Chart & Ownership */}
@@ -333,16 +253,10 @@ export default function DashboardView({
         <div className="card chart-box">
           <div className="section-head flex-wrap gap-2">
             <div>
-              <div className="flex items-center gap-2">
-                <span className="section-title">NAV Trajectory</span>
-                {activeTimeframeMetric && (
-                  <span className={`badge ${activeTimeframeMetric.pct >= 0 ? 'badge-profit' : 'badge-loss'} mono`} style={{ fontSize: 10 }}>
-                    {timeRange}: {activeTimeframeMetric.pct >= 0 ? '+' : ''}{activeTimeframeMetric.pct}% ({activeTimeframeMetric.delta >= 0 ? '+' : ''}{formatCurrency(activeTimeframeMetric.delta, currency, { decimals: 2 })})
-                  </span>
-                )}
-              </div>
+              <span className="section-title">NAV Trajectory</span>
               <span className="text-xs text-muted mono block mt-0.5">
                 Current NAV: {formatCurrency(fundMetrics.currentNav, currency, { decimals: 2 })}
+                {activeTimeframeMetric && ` • ${timeRange}: ${activeTimeframeMetric.pct >= 0 ? '+' : ''}${activeTimeframeMetric.pct}%`}
               </span>
             </div>
 
@@ -353,7 +267,7 @@ export default function DashboardView({
                   type="button"
                   onClick={() => setTimeRange(r)}
                   className={`btn btn-sm mono ${timeRange === r ? 'btn-primary' : 'btn-secondary'}`}
-                  style={{ fontSize: 10, padding: '2px 8px' }}
+                  style={{ fontSize: 10, padding: '2px 7px' }}
                 >
                   {r}
                 </button>

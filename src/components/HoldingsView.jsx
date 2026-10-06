@@ -349,20 +349,10 @@ export default function HoldingsView({
         </div>
 
         <div className="metric-cell">
-          <span className="metric-label">Cost Basis (Invested)</span>
+          <span className="metric-label">Total Cost Basis</span>
           <span className="metric-val mono">{formatCurrency(totalInvested, currency)}</span>
           <div className="metric-delta text-muted">
-            <span>{activeHoldings.length} active positions</span>
-          </div>
-        </div>
-
-        <div className="metric-cell">
-          <span className="metric-label">Realized PnL (Booked)</span>
-          <span className={`metric-val mono ${realizedProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
-            {realizedProfit >= 0 ? '+' : ''}{formatCurrency(realizedProfit, currency, { decimals: 0 })}
-          </span>
-          <div className="metric-delta text-muted">
-            <span>Total PnL: {totalHoldingsProfit >= 0 ? '+' : ''}{formatCurrency(totalHoldingsProfit, currency, { decimals: 0 })}</span>
+            <span>Booked: {realizedProfit >= 0 ? '+' : ''}{formatCurrency(realizedProfit, currency, { decimals: 0 })} • {activeHoldings.length} active</span>
           </div>
         </div>
 
