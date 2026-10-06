@@ -52,6 +52,8 @@ export default function DashboardView({
   const [txPage, setTxPage] = useState(1);
   const [txPageSize, setTxPageSize] = useState(15);
   const [memberSearchTerm, setMemberSearchTerm] = useState('');
+  const [dashMemberPage, setDashMemberPage] = useState(1);
+  const dashMemberPageSize = 8;
 
   const handleCopyMySummary = () => {
     if (!currentMember) return;
@@ -571,62 +573,124 @@ export default function DashboardView({
               </div>
             </div>
 
-            {(fundMetrics?.members?.length || 0) > 4 && (
-              <div className="mb-2">
-                <input
-                  type="text"
-                  placeholder="Filter participants by name or code..."
-                  value={memberSearchTerm}
-                  onChange={(e) => setMemberSearchTerm(e.target.value)}
-                  className="input input-sm w-full mono"
-                  style={{ fontSize: 11, padding: '4px 8px' }}
-                />
-              </div>
-            )}
+            {/* Search and Quick Jumper */}
+            <div className="mb-2 flex gap-1.5">
+              <input
+                type="text"
+                placeholder="Filter participants by name or code..."
+                value={memberSearchTerm}
+                onChange={(e) => {
+                  setMemberSearchTerm(e.target.value);
+                  setDashMemberPage(1);
+                }}
+                className="input input-sm w-full mono"
+                style={{ fontSize: 11, padding: '4px 8px' }}
+              />
+              <select
+                value=""
+                onChange={(e) => {
+                  const m = (fundMetrics?.members || []).find(x => String(x.id) === String(e.target.value));
+                  if (m) handleSelectMember(m);
+                }}
+                className="form-select mono"
+                style={{ fontSize: 10, padding: '3px 6px', maxWidth: '140px' }}
+              >
+                <option value="" disabled>Jump...</option>
+                {(fundMetrics?.members || []).map(m => (
+                  <option key={m.id} value={m.id}>{m.name} ({formatNumber(m.ownershipPct, 1)}%)</option>
+                ))}
+              </select>
+            </div>
 
-            <div className="compact-list" style={{ maxHeight: '280px', overflowY: 'auto' }}>
-              {(fundMetrics?.members || [])
-                .filter(m => {
-                  if (!memberSearchTerm.trim()) return true;
-                  const term = memberSearchTerm.toLowerCase();
-                  return (m.name && m.name.toLowerCase().includes(term)) ||
-                         (m.email && m.email.toLowerCase().includes(term)) ||
-                         (m.userCode && m.userCode.toLowerCase().includes(term)) ||
-                         (m.role && m.role.toLowerCase().includes(term));
-                })
-                .map((m) => {
-                  const isThisMe = m.id === currentMember?.id || m.isMe;
-                  return (
-                    <div 
-                      key={m.id} 
-                      className="compact-list-row"
-                      style={{ cursor: 'pointer', background: isThisMe ? 'rgba(99, 102, 241, 0.06)' : undefined }}
-                      onClick={() => handleSelectMember(m)}
-                      title="View Statement"
-                    >
-                      <div>
-                        <div className="font-medium flex items-center gap-1">
-                          {m.name}
-                          {isThisMe && (
-                            <span className="badge badge-profit mono" style={{ fontSize: 9, padding: '1px 5px' }}>
-                              You
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-xs text-muted mono">
-                          {formatNumber(m.units, 2)} units &bull; {formatNumber(m.ownershipPct, 1)}%
-                        </div>
+            {(() => {
+              const filtered = (fundMetrics?.members || []).filter(m => {
+                if (!memberSearchTerm.trim()) return true;
+                const term = memberSearchTerm.toLowerCase();
+                return (m.name && m.name.toLowerCase().includes(term)) ||
+                       (m.email && m.email.toLowerCase().includes(term)) ||
+                       (m.userCode && m.userCode.toLowerCase().includes(term)) ||
+                       (m.role && m.role.toLowerCase().includes(term));
+              });
+              const totalPages = Math.max(1, Math.ceil(filtered.length / dashMemberPageSize));
+              const currPage = Math.min(dashMemberPage, totalPages);
+              const paged = filtered.slice((currPage - 1) * dashMemberPageSize, currPage * dashMemberPageSize);
+
+              return (
+                <>
+                  <div className="compact-list" style={{ maxHeight: '250px', overflowY: 'auto' }}>
+                    {paged.length === 0 ? (
+                      <div className="text-center text-muted py-4 mono text-xs">
+                        No participants found.
                       </div>
-                      <div className="text-right">
-                        <div className="mono font-semibold">{formatCurrency(m.currentValue, currency)}</div>
-                        <div className={`text-xs mono ${m.totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
-                          {m.totalProfit >= 0 ? '+' : ''}{formatNumber(m.roiPercentage, 1)}%
-                        </div>
+                    ) : (
+                      paged.map((m) => {
+                        const isThisMe = m.id === currentMember?.id || m.isMe;
+                        return (
+                          <div 
+                            key={m.id} 
+                            className="compact-list-row"
+                            style={{ cursor: 'pointer', background: isThisMe ? 'rgba(99, 102, 241, 0.06)' : undefined }}
+                            onClick={() => handleSelectMember(m)}
+                            title="Click to view full tear-sheet statement"
+                          >
+                            <div>
+                              <div className="font-medium flex items-center gap-1">
+                                {m.name}
+                                {isThisMe && (
+                                  <span className="badge badge-profit mono" style={{ fontSize: 9, padding: '1px 5px' }}>
+                                    You
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-xs text-muted mono">
+                                {formatNumber(m.units, 2)} units &bull; {formatNumber(m.ownershipPct, 1)}%
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="mono font-semibold">{formatCurrency(m.currentValue, currency)}</div>
+                              <div className={`text-xs mono ${m.totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
+                                {m.totalProfit >= 0 ? '+' : ''}{formatNumber(m.roiPercentage, 1)}%
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {filtered.length > dashMemberPageSize && (
+                    <div className="flex justify-between items-center mt-2 pt-2 text-xs text-muted" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                      <span className="mono" style={{ fontSize: 10 }}>
+                        {((currPage - 1) * dashMemberPageSize) + 1}–{Math.min(currPage * dashMemberPageSize, filtered.length)} of {filtered.length}
+                      </span>
+                      <div className="flex gap-1">
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm mono"
+                          style={{ fontSize: 9, padding: '1px 6px' }}
+                          disabled={currPage <= 1}
+                          onClick={() => setDashMemberPage(p => Math.max(1, p - 1))}
+                        >
+                          &larr; Prev
+                        </button>
+                        <span className="mono" style={{ fontSize: 10, padding: '0 4px' }}>
+                          {currPage}/{totalPages}
+                        </span>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm mono"
+                          style={{ fontSize: 9, padding: '1px 6px' }}
+                          disabled={currPage >= totalPages}
+                          onClick={() => setDashMemberPage(p => Math.min(totalPages, p + 1))}
+                        >
+                          Next &rarr;
+                        </button>
                       </div>
                     </div>
-                  );
-                })}
-            </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
         )}
       </div>
