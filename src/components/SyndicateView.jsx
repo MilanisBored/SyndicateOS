@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { 
   formatCurrency, 
   formatNumber, 
@@ -124,33 +124,55 @@ export default function SyndicateView({
     setMemberPage(1);
   };
 
-  const resolveMember = (tx) => {
-    if (!tx) return null;
-    return fundMetrics.members.find((m) => 
-      m.id === tx.memberId ||
-      (tx.memberId && String(m.id).toLowerCase() === String(tx.memberId).toLowerCase()) ||
-      (tx.memberName && m.name.toLowerCase() === tx.memberName.toLowerCase()) ||
-      (tx.note && tx.note.toLowerCase().includes(m.name.toLowerCase()))
-    );
-  };
+  // Pre-indexed O(1) member lookup map
+  const memberLookup = useMemo(() => {
+    const map = new Map();
+    (fundMetrics?.members || []).forEach(m => {
+      if (m.id) map.set(String(m.id).toLowerCase(), m);
+      if (m.name) map.set(m.name.toLowerCase().trim(), m);
+    });
+    return map;
+  }, [fundMetrics?.members]);
 
-  const filteredTx = transactions
-    .filter((tx) => {
+  const resolveMember = useCallback((tx) => {
+    if (!tx) return null;
+    if (tx.memberId) {
+      const found = memberLookup.get(String(tx.memberId).toLowerCase());
+      if (found) return found;
+    }
+    if (tx.memberName) {
+      const found = memberLookup.get(tx.memberName.toLowerCase().trim());
+      if (found) return found;
+    }
+    return null;
+  }, [memberLookup]);
+
+  const filteredTx = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    const result = transactions.filter((tx) => {
       const member = resolveMember(tx);
       if (filterMember !== 'all' && tx.memberId !== filterMember && member?.id !== filterMember) return false;
       if (filterType !== 'all' && tx.type !== filterType) return false;
       if (filterStatus !== 'all' && (tx.status || 'verified') !== filterStatus) return false;
-      if (searchTerm) {
-        const term = searchTerm.toLowerCase();
+      if (term) {
         const matchesNote = tx.note?.toLowerCase().includes(term);
-        const matchesMember = member?.name.toLowerCase().includes(term);
+        const matchesMember = member?.name?.toLowerCase().includes(term);
         if (!matchesNote && !matchesMember) return false;
       }
       return true;
-    })
-    .sort((a, b) => new Date(b.date) - new Date(a.date));
+    });
 
-  const totalHoldingsVal = holdings.reduce((sum, h) => sum + (Number(h.currentValue) || 0), 0);
+    // Zero-allocation O(1) ISO string sort
+    return result.sort((a, b) => {
+      const da = a.date || '';
+      const db = b.date || '';
+      return db < da ? -1 : (db > da ? 1 : 0);
+    });
+  }, [transactions, resolveMember, filterMember, filterType, filterStatus, searchTerm]);
+
+  const totalHoldingsVal = useMemo(() => {
+    return holdings.reduce((sum, h) => sum + (Number(h.currentValue) || 0), 0);
+  }, [holdings]);
 
   return (
     <div>

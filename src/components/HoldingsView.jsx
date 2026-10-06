@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { formatCurrency, formatNumber } from '../utils/navEngine';
 import { 
   searchMutualFundsAMFI,
@@ -66,27 +66,53 @@ export default function HoldingsView({
   const [batchProgress, setBatchProgress] = useState(null);
   const [batchSummary, setBatchSummary] = useState(null);
 
-  const activeHoldings = holdings.filter((h) => h.status !== 'closed');
-  const closedHoldings = holdings.filter((h) => h.status === 'closed');
-  const totalInvested = activeHoldings.reduce((sum, h) => sum + (Number(h.investedAmount) || 0), 0);
-  const totalHoldingsValue = activeHoldings.reduce((sum, h) => sum + (Number(h.currentValue) || 0), 0);
-  const unrealizedProfit = totalHoldingsValue - totalInvested;
-  const unrealizedRoi = totalInvested > 0 ? (unrealizedProfit / totalInvested) * 100 : 0;
-  const realizedProfit = holdings.reduce((sum, h) => sum + (Number(h.realizedPnl) || 0), 0);
-  const totalHoldingsProfit = unrealizedProfit + realizedProfit;
-  const totalHoldingsRoi = totalInvested > 0 ? (totalHoldingsProfit / totalInvested) * 100 : 0;
+  const {
+    activeHoldings,
+    closedHoldings,
+    totalInvested,
+    totalHoldingsValue,
+    unrealizedProfit,
+    unrealizedRoi,
+    realizedProfit,
+    totalHoldingsProfit,
+    totalHoldingsRoi,
+    categoryList
+  } = useMemo(() => {
+    const safeHoldings = Array.isArray(holdings) ? holdings : [];
+    const active = safeHoldings.filter((h) => h.status !== 'closed');
+    const closed = safeHoldings.filter((h) => h.status === 'closed');
+    const invested = active.reduce((sum, h) => sum + (Number(h.investedAmount) || 0), 0);
+    const value = active.reduce((sum, h) => sum + (Number(h.currentValue) || 0), 0);
+    const unrealized = value - invested;
+    const uRoi = invested > 0 ? (unrealized / invested) * 100 : 0;
+    const realized = safeHoldings.reduce((sum, h) => sum + (Number(h.realizedPnl) || 0), 0);
+    const totalProfit = unrealized + realized;
+    const tRoi = invested > 0 ? (totalProfit / invested) * 100 : 0;
 
-  const categoryBreakdown = activeHoldings.reduce((acc, h) => {
-    const cat = h.category || 'Asset Allocation';
-    if (!acc[cat]) {
-      acc[cat] = { category: cat, costBasis: 0, currentValue: 0, count: 0 };
-    }
-    acc[cat].costBasis += (Number(h.investedAmount) || 0);
-    acc[cat].currentValue += (Number(h.currentValue) || 0);
-    acc[cat].count += 1;
-    return acc;
-  }, {});
-  const categoryList = Object.values(categoryBreakdown);
+    const catBreakdown = active.reduce((acc, h) => {
+      const cat = h.category || 'Asset Allocation';
+      if (!acc[cat]) {
+        acc[cat] = { category: cat, costBasis: 0, currentValue: 0, count: 0 };
+      }
+      acc[cat].costBasis += (Number(h.investedAmount) || 0);
+      acc[cat].currentValue += (Number(h.currentValue) || 0);
+      acc[cat].count += 1;
+      return acc;
+    }, {});
+
+    return {
+      activeHoldings: active,
+      closedHoldings: closed,
+      totalInvested: invested,
+      totalHoldingsValue: value,
+      unrealizedProfit: unrealized,
+      unrealizedRoi: uRoi,
+      realizedProfit: realized,
+      totalHoldingsProfit: totalProfit,
+      totalHoldingsRoi: tRoi,
+      categoryList: Object.values(catBreakdown),
+    };
+  }, [holdings]);
 
   const handleOpenAdd = () => {
     setEditingAsset(null);

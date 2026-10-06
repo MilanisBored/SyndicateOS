@@ -247,8 +247,12 @@ export function computeFundState(fundInfo = {}, members = [], transactions = [],
   const safeTransactions = Array.isArray(transactions) ? transactions : [];
   const safeHoldings = Array.isArray(holdings) ? holdings : [];
 
-  // Sort transactions chronologically
-  const sortedTx = [...safeTransactions].sort((a, b) => new Date(a.date || '1970-01-01') - new Date(b.date || '1970-01-01'));
+  // High-performance chronological sort: ISO strings 'YYYY-MM-DD' compare directly in O(1) without new Date() object allocation
+  const sortedTx = [...safeTransactions].sort((a, b) => {
+    const da = a.date || '';
+    const db = b.date || '';
+    return da < db ? -1 : (da > db ? 1 : 0);
+  });
 
   // Initialize tracking
   let currentNav = Number(safeFundInfo.initialNav) || 100.0;
@@ -256,10 +260,14 @@ export function computeFundState(fundInfo = {}, members = [], transactions = [],
   let totalDeposited = 0;
   let totalWithdrawn = 0;
 
+  // Pre-index members into O(1) Hash Maps for ultra-fast transaction reconciliation
   const memberStats = {};
+  const memberByIdLower = new Map();
+  const memberByNameLower = new Map();
+
   safeMembers.forEach((m) => {
     if (!m || !m.id) return;
-    memberStats[m.id] = {
+    const stat = {
       ...m,
       units: 0,
       totalDeposited: 0,
@@ -268,8 +276,12 @@ export function computeFundState(fundInfo = {}, members = [], transactions = [],
       lastActivityDate: null,
       history: [],
     };
+    memberStats[m.id] = stat;
+    memberByIdLower.set(String(m.id).toLowerCase(), stat);
+    if (m.name) {
+      memberByNameLower.set(m.name.trim().toLowerCase(), stat);
+    }
   });
-
 
   const timeline = [];
 
@@ -278,33 +290,19 @@ export function computeFundState(fundInfo = {}, members = [], transactions = [],
     const isDeposit = tx.type === "deposit";
     const isWithdrawal = tx.type === "withdrawal";
 
-    // Helper to find member stat across UUIDs, names, or notes
-    const targetStat = (() => {
-      // 1. Exact ID match
-      if (tx.memberId && memberStats[tx.memberId]) return memberStats[tx.memberId];
-
-      // 2. Case-insensitive ID match
-      if (tx.memberId) {
-        const idMatch = members.find(m => String(m.id).toLowerCase() === String(tx.memberId).toLowerCase());
-        if (idMatch && memberStats[idMatch.id]) return memberStats[idMatch.id];
-      }
-
-      // 3. Member Name match (e.g. John Doe, Alex Smith)
-      const nameToMatch = (tx.memberName || '').trim().toLowerCase();
-      if (nameToMatch) {
-        const nameMatch = members.find(m => m.name.trim().toLowerCase() === nameToMatch);
-        if (nameMatch && memberStats[nameMatch.id]) return memberStats[nameMatch.id];
-      }
-
-      // 4. Note / Memo mention of member name (e.g. "Deposit by John Doe")
-      if (tx.note) {
+    // O(1) Hash Map resolution: eliminates O(T * M) nested array iterations
+    const targetStat = 
+      (tx.memberId && memberStats[tx.memberId]) ||
+      (tx.memberId && memberByIdLower.get(String(tx.memberId).toLowerCase())) ||
+      (tx.memberName && memberByNameLower.get(tx.memberName.trim().toLowerCase())) ||
+      (tx.note && (() => {
         const noteLower = tx.note.toLowerCase();
-        const noteMatch = members.find(m => noteLower.includes(m.name.toLowerCase()));
-        if (noteMatch && memberStats[noteMatch.id]) return memberStats[noteMatch.id];
-      }
-
-      return null;
-    })();
+        for (const [nameLower, stat] of memberByNameLower.entries()) {
+          if (noteLower.includes(nameLower)) return stat;
+        }
+        return null;
+      })()) ||
+      null;
 
     // Propagate resolved member onto transaction object for consistent UI rendering
     if (targetStat && !tx.memberId) {
@@ -561,39 +559,45 @@ export function computeFundState(fundInfo = {}, members = [], transactions = [],
  * Calculates multi-timeframe performance metrics (1D, 1W, 1M, YTD, ALL)
  */
 export function calculateNavTimeframes(timeline = [], currentNav = 100, initialNav = 100) {
-  const safeTimeline = Array.isArray(timeline) ? [...timeline] : [];
-  safeTimeline.sort((a, b) => new Date(a.date || '1970-01-01') - new Date(b.date || '1970-01-01'));
+  if (!Array.isArray(timeline) || timeline.length === 0) {
+    const defaultM = { startNav: currentNav, endNav: currentNav, delta: 0, pct: 0 };
+    return { '1D': defaultM, '1W': defaultM, '1M': defaultM, 'YTD': defaultM, 'ALL': defaultM };
+  }
+
+  // Fast chronological sort using direct string comparison without date object allocations
+  const safeTimeline = [...timeline].sort((a, b) => {
+    const da = a.date || '';
+    const db = b.date || '';
+    return da < db ? -1 : (da > db ? 1 : 0);
+  });
 
   const now = new Date();
-  const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-  const ytdStart = new Date(now.getFullYear(), 0, 1);
+  const oneDayAgoStr = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const oneWeekAgoStr = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const oneMonthAgoStr = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const ytdStartStr = `${now.getFullYear()}-01-01`;
 
-  function getNavAtOrBefore(targetDate, fallbackNav) {
-    if (safeTimeline.length === 0) return fallbackNav;
-    const targetMs = targetDate.getTime();
-    let best = null;
+  // Zero-allocation lookup using ISO string comparison (O(T) worst case, O(1) typical)
+  function getNavAtOrBefore(targetDateStr, fallbackNav) {
     for (let i = safeTimeline.length - 1; i >= 0; i--) {
-      const pointMs = new Date(safeTimeline[i].date).getTime();
-      if (pointMs <= targetMs) {
-        best = safeTimeline[i].nav;
-        break;
+      const pDate = safeTimeline[i].date || '';
+      if (pDate <= targetDateStr) {
+        return safeTimeline[i].nav;
       }
     }
-    return best !== null ? best : (safeTimeline[0]?.nav || fallbackNav);
+    return safeTimeline[0]?.nav || fallbackNav;
   }
 
   let nav1D = currentNav;
   if (safeTimeline.length > 1) {
-    nav1D = getNavAtOrBefore(oneDayAgo, safeTimeline[safeTimeline.length - 2]?.nav || currentNav);
+    nav1D = getNavAtOrBefore(oneDayAgoStr, safeTimeline[safeTimeline.length - 2]?.nav || currentNav);
   } else {
     nav1D = initialNav;
   }
 
-  const nav1W = getNavAtOrBefore(oneWeekAgo, initialNav);
-  const nav1M = getNavAtOrBefore(oneMonthAgo, initialNav);
-  const navYtd = getNavAtOrBefore(ytdStart, initialNav);
+  const nav1W = getNavAtOrBefore(oneWeekAgoStr, initialNav);
+  const nav1M = getNavAtOrBefore(oneMonthAgoStr, initialNav);
+  const navYtd = getNavAtOrBefore(ytdStartStr, initialNav);
   const navAll = initialNav || (safeTimeline[0]?.nav || 100);
 
   function calcMetric(startNav, endNav) {
@@ -619,50 +623,55 @@ export function calculateNavTimeframes(timeline = [], currentNav = 100, initialN
 }
 
 /**
- * Filters timeline points to a specified time horizon
+ * Filters timeline points to a specified time horizon with zero Date-allocation filtering
  */
 export function filterTimelineByRange(timeline = [], rangeKey = 'ALL', currentNav = 100, initialNav = 100) {
   if (!Array.isArray(timeline) || timeline.length === 0) {
     return [];
   }
 
-  const sorted = [...timeline].sort((a, b) => new Date(a.date || '1970-01-01') - new Date(b.date || '1970-01-01'));
-  const now = new Date();
+  const sorted = [...timeline].sort((a, b) => {
+    const da = a.date || '';
+    const db = b.date || '';
+    return da < db ? -1 : (da > db ? 1 : 0);
+  });
 
-  let cutoffDate = null;
+  const now = new Date();
+  const todayStr = now.toISOString().split('T')[0];
+
+  let cutoffStr = null;
   if (rangeKey === '1D') {
-    cutoffDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    cutoffStr = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   } else if (rangeKey === '1W') {
-    cutoffDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    cutoffStr = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   } else if (rangeKey === '1M') {
-    cutoffDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    cutoffStr = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   } else if (rangeKey === 'YTD') {
-    cutoffDate = new Date(now.getFullYear(), 0, 1);
+    cutoffStr = `${now.getFullYear()}-01-01`;
   }
 
-  if (!cutoffDate || rangeKey === 'ALL') {
+  if (!cutoffStr || rangeKey === 'ALL') {
     return sorted;
   }
 
-  const cutoffMs = cutoffDate.getTime();
-  const filtered = sorted.filter((p) => new Date(p.date).getTime() >= cutoffMs);
+  const filtered = sorted.filter((p) => (p.date || '') >= cutoffStr);
 
   if (filtered.length === 0) {
     const lastPrior = sorted[sorted.length - 1];
     return [
-      { date: cutoffDate.toISOString().split('T')[0], nav: lastPrior?.nav || initialNav },
-      { date: now.toISOString().split('T')[0], nav: currentNav },
+      { date: cutoffStr, nav: lastPrior?.nav || initialNav },
+      { date: todayStr, nav: currentNav },
     ];
   } else if (filtered.length === 1) {
     let priorNav = initialNav;
     for (let i = sorted.length - 1; i >= 0; i--) {
-      if (new Date(sorted[i].date).getTime() < cutoffMs) {
+      if ((sorted[i].date || '') < cutoffStr) {
         priorNav = sorted[i].nav;
         break;
       }
     }
     const anchor = {
-      date: cutoffDate.toISOString().split('T')[0],
+      date: cutoffStr,
       nav: priorNav,
       synthetic: true,
     };
