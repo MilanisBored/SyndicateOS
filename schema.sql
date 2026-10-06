@@ -100,8 +100,26 @@ CREATE TABLE IF NOT EXISTS holdings (
 );
 
 ALTER TABLE holdings ADD COLUMN IF NOT EXISTS units NUMERIC(18, 6);
+ALTER TABLE holdings ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active';
+ALTER TABLE holdings ADD COLUMN IF NOT EXISTS realized_pnl NUMERIC(15, 2) DEFAULT 0;
+ALTER TABLE holdings ADD COLUMN IF NOT EXISTS closed_at DATE;
 
--- 5. Personal Finances: Incomes (Strictly Private to Individual User)
+-- 5. Daily NAV History & Snapshots (EOD Time-Series)
+CREATE TABLE IF NOT EXISTS nav_history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    fund_id UUID REFERENCES funds(id) ON DELETE CASCADE,
+    date DATE NOT NULL,
+    nav NUMERIC(20, 6) NOT NULL,
+    total_aum NUMERIC(20, 2) NOT NULL DEFAULT 0,
+    total_units NUMERIC(30, 12) NOT NULL DEFAULT 0,
+    undeployed_cash NUMERIC(20, 2) NOT NULL DEFAULT 0,
+    realized_pnl NUMERIC(20, 2) DEFAULT 0,
+    unrealized_pnl NUMERIC(20, 2) DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(fund_id, date)
+);
+
+-- 6. Personal Finances: Incomes (Strictly Private to Individual User)
 CREATE TABLE IF NOT EXISTS personal_incomes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,

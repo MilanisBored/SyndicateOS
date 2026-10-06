@@ -35,6 +35,9 @@ export default function HoldingsView({
   const [currentValue, setCurrentValue] = useState('');
   const [units, setUnits] = useState('');
   const [notes, setNotes] = useState('');
+  const [holdingStatus, setHoldingStatus] = useState('active');
+  const [realizedPnlInput, setRealizedPnlInput] = useState('');
+  const [positionFilter, setPositionFilter] = useState('all');
   const [isFetchingSingleQuote, setIsFetchingSingleQuote] = useState(false);
   const [singleQuoteStatus, setSingleQuoteStatus] = useState('');
 
@@ -63,12 +66,17 @@ export default function HoldingsView({
   const [batchProgress, setBatchProgress] = useState(null);
   const [batchSummary, setBatchSummary] = useState(null);
 
-  const totalInvested = holdings.reduce((sum, h) => sum + (Number(h.investedAmount) || 0), 0);
-  const totalHoldingsValue = holdings.reduce((sum, h) => sum + (Number(h.currentValue) || 0), 0);
-  const totalHoldingsProfit = totalHoldingsValue - totalInvested;
+  const activeHoldings = holdings.filter((h) => h.status !== 'closed');
+  const closedHoldings = holdings.filter((h) => h.status === 'closed');
+  const totalInvested = activeHoldings.reduce((sum, h) => sum + (Number(h.investedAmount) || 0), 0);
+  const totalHoldingsValue = activeHoldings.reduce((sum, h) => sum + (Number(h.currentValue) || 0), 0);
+  const unrealizedProfit = totalHoldingsValue - totalInvested;
+  const unrealizedRoi = totalInvested > 0 ? (unrealizedProfit / totalInvested) * 100 : 0;
+  const realizedProfit = holdings.reduce((sum, h) => sum + (Number(h.realizedPnl) || 0), 0);
+  const totalHoldingsProfit = unrealizedProfit + realizedProfit;
   const totalHoldingsRoi = totalInvested > 0 ? (totalHoldingsProfit / totalInvested) * 100 : 0;
 
-  const categoryBreakdown = holdings.reduce((acc, h) => {
+  const categoryBreakdown = activeHoldings.reduce((acc, h) => {
     const cat = h.category || 'Asset Allocation';
     if (!acc[cat]) {
       acc[cat] = { category: cat, costBasis: 0, currentValue: 0, count: 0 };
@@ -88,6 +96,8 @@ export default function HoldingsView({
     setInvestedAmount('');
     setCurrentValue('');
     setUnits('');
+    setHoldingStatus('active');
+    setRealizedPnlInput('');
     setNotes('');
     setSingleQuoteStatus('');
     setFundSuggestions([]);
@@ -104,6 +114,8 @@ export default function HoldingsView({
     setInvestedAmount(ast.investedAmount);
     setCurrentValue(ast.currentValue);
     setUnits(ast.units || ast.quantity || '');
+    setHoldingStatus(ast.status || 'active');
+    setRealizedPnlInput(ast.realizedPnl !== undefined && ast.realizedPnl !== null ? ast.realizedPnl : '');
     setNotes(ast.notes || '');
     setSingleQuoteStatus('');
     setFundSuggestions([]);
@@ -218,6 +230,8 @@ export default function HoldingsView({
       investedAmount: Number(investedAmount),
       currentValue: Number(currentValue),
       units: Number(units) || null,
+      status: holdingStatus,
+      realizedPnl: realizedPnlInput !== '' ? Number(realizedPnlInput) : 0,
       notes: notes.trim(),
     };
 
@@ -320,8 +334,8 @@ export default function HoldingsView({
           <span className="metric-label">Holdings Valuation</span>
           <span className="metric-val mono">{formatCurrency(totalHoldingsValue, currency)}</span>
           <div className="metric-delta">
-            <span className={totalHoldingsProfit >= 0 ? 'text-profit' : 'text-loss'}>
-              {totalHoldingsProfit >= 0 ? '+' : ''}{formatCurrency(totalHoldingsProfit, currency, { decimals: 0 })} ({formatNumber(totalHoldingsRoi, 1)}%)
+            <span className={unrealizedProfit >= 0 ? 'text-profit' : 'text-loss'}>
+              {unrealizedProfit >= 0 ? '+' : ''}{formatCurrency(unrealizedProfit, currency, { decimals: 0 })} ({formatNumber(unrealizedRoi, 1)}%)
             </span>
           </div>
         </div>
@@ -335,10 +349,20 @@ export default function HoldingsView({
         </div>
 
         <div className="metric-cell">
-          <span className="metric-label">Total Cost Basis</span>
+          <span className="metric-label">Cost Basis (Invested)</span>
           <span className="metric-val mono">{formatCurrency(totalInvested, currency)}</span>
           <div className="metric-delta text-muted">
-            <span>{holdings.length} active positions</span>
+            <span>{activeHoldings.length} active positions</span>
+          </div>
+        </div>
+
+        <div className="metric-cell">
+          <span className="metric-label">Realized PnL (Booked)</span>
+          <span className={`metric-val mono ${realizedProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
+            {realizedProfit >= 0 ? '+' : ''}{formatCurrency(realizedProfit, currency, { decimals: 0 })}
+          </span>
+          <div className="metric-delta text-muted">
+            <span>Total PnL: {totalHoldingsProfit >= 0 ? '+' : ''}{formatCurrency(totalHoldingsProfit, currency, { decimals: 0 })}</span>
           </div>
         </div>
 
@@ -498,12 +522,41 @@ export default function HoldingsView({
         </div>
       ) : (
         <div className="card p-4">
-          <div className="section-head">
+          <div className="section-head flex-wrap gap-2">
             <div>
               <span className="section-title">Syndicate Portfolio Positions</span>
               <span className="text-xs text-muted block">
                 Updating any FD or asset price updates the fund NAV and all participants' balances automatically.
               </span>
+            </div>
+
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                className={`btn btn-sm mono ${positionFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ fontSize: 10, padding: '2px 8px' }}
+                onClick={() => setPositionFilter('all')}
+              >
+                All ({holdings.length})
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm mono ${positionFilter === 'active' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ fontSize: 10, padding: '2px 8px' }}
+                onClick={() => setPositionFilter('active')}
+              >
+                Active ({activeHoldings.length})
+              </button>
+              {closedHoldings.length > 0 && (
+                <button
+                  type="button"
+                  className={`btn btn-sm mono ${positionFilter === 'closed' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ fontSize: 10, padding: '2px 8px' }}
+                  onClick={() => setPositionFilter('closed')}
+                >
+                  Closed ({closedHoldings.length})
+                </button>
+              )}
             </div>
           </div>
 
@@ -523,23 +576,28 @@ export default function HoldingsView({
               </tr>
             </thead>
             <tbody>
-              {holdings.length === 0 ? (
+              {(positionFilter === 'active' ? activeHoldings : positionFilter === 'closed' ? closedHoldings : holdings).length === 0 ? (
                 <tr>
                   <td colSpan="9" className="text-center text-muted py-6">
-                    No holdings yet. Click "+ Add Asset / FD" to log an investment or Fixed Deposit.
+                    {positionFilter === 'closed' ? 'No closed positions logged yet.' : 'No holdings yet. Click "+ Add Asset / FD" to log an investment or Fixed Deposit.'}
                   </td>
                 </tr>
               ) : (
-                holdings.map((ast) => {
-                  const gain = ast.currentValue - ast.investedAmount;
+                (positionFilter === 'active' ? activeHoldings : positionFilter === 'closed' ? closedHoldings : holdings).map((ast) => {
+                  const gain = ast.status === 'closed' && ast.realizedPnl !== undefined ? ast.realizedPnl : (ast.currentValue - ast.investedAmount);
                   const roi = ast.investedAmount > 0 ? (gain / ast.investedAmount) * 100 : 0;
-                  const weight = totalHoldingsValue > 0 ? (ast.currentValue / totalHoldingsValue) * 100 : 0;
+                  const weight = totalHoldingsValue > 0 && ast.status !== 'closed' ? (ast.currentValue / totalHoldingsValue) * 100 : 0;
                   const isInline = inlineEditingId === ast.id;
                   const isUnitsInline = inlineUnitsEditingId === ast.id;
 
                   return (
                     <tr key={ast.id}>
-                      <td className="mono font-semibold">{ast.ticker}</td>
+                      <td className="mono font-semibold">
+                        {ast.ticker}
+                        {ast.status === 'closed' && (
+                          <span className="badge badge-neutral mono" style={{ fontSize: 9, marginLeft: 6 }}>CLOSED</span>
+                        )}
+                      </td>
                       <td className="font-medium">
                         <div>{ast.name}</div>
                         {ast.notes && <div className="text-xs text-muted truncate" style={{ maxWidth: 160 }}>{ast.notes}</div>}
@@ -661,6 +719,9 @@ export default function HoldingsView({
 
                       <td className={`mono ${gain >= 0 ? 'text-profit' : 'text-loss'}`}>
                         {gain >= 0 ? '+' : ''}{formatCurrency(gain, currency, { decimals: 0 })} ({formatNumber(roi, 1)}%)
+                        {ast.status === 'closed' && (
+                          <span className="text-xxs text-muted block mono">[BOOKED]</span>
+                        )}
                       </td>
                       <td className="mono text-muted">{formatNumber(weight, 1)}%</td>
                       <td>
@@ -898,6 +959,31 @@ export default function HoldingsView({
                     onChange={(e) => setCurrentValue(e.target.value)}
                     className="form-input mono"
                     required
+                  />
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div className="form-group flex-1">
+                  <label className="form-label">Position Status</label>
+                  <select
+                    value={holdingStatus}
+                    onChange={(e) => setHoldingStatus(e.target.value)}
+                    className="form-select mono"
+                  >
+                    <option value="active">Active (Open Position)</option>
+                    <option value="closed">Closed / Realized (Exited Trade)</option>
+                  </select>
+                </div>
+                <div className="form-group flex-1">
+                  <label className="form-label">Realized Profit / Booked PnL</label>
+                  <input
+                    type="number"
+                    step="any"
+                    placeholder="e.g. 12500 or -3500"
+                    value={realizedPnlInput}
+                    onChange={(e) => setRealizedPnlInput(e.target.value)}
+                    className="form-input mono"
                   />
                 </div>
               </div>

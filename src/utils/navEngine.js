@@ -483,6 +483,47 @@ export function computeFundState(fundInfo = {}, members = [], transactions = [],
   let totalFundRoiPct = totalFundDeposited > 0 ? (totalFundNetProfit / totalFundDeposited) * 100 : 0;
   if (Math.abs(totalFundRoiPct) < 0.001) totalFundRoiPct = 0;
 
+  // Institutional PnL & Balance Sheet Breakdown
+  const activeHoldings = safeHoldings.filter((h) => h.status !== 'closed');
+  const activeHoldingsCost = activeHoldings.reduce((sum, h) => {
+    const rawCost = Number(h.investedAmount) || 0;
+    const hCur = h.nativeCurrency || h.currency || fundCur;
+    return sum + convertCurrency(rawCost, hCur, fundCur);
+  }, 0);
+  const activeHoldingsVal = activeHoldings.reduce((sum, h) => {
+    const rawVal = Number(h.currentValue) || 0;
+    const hCur = h.nativeCurrency || h.currency || fundCur;
+    return sum + convertCurrency(rawVal, hCur, fundCur);
+  }, 0);
+
+  let unrealizedProfit = activeHoldingsVal - activeHoldingsCost;
+  if (Math.abs(unrealizedProfit) < 0.01) unrealizedProfit = 0;
+  const unrealizedRoiPct = activeHoldingsCost > 0 ? (unrealizedProfit / activeHoldingsCost) * 100 : 0;
+
+  const realizedProfit = safeHoldings.reduce((sum, h) => {
+    const rawRealized = Number(h.realizedPnl) || 0;
+    const hCur = h.nativeCurrency || h.currency || fundCur;
+    return sum + convertCurrency(rawRealized, hCur, fundCur);
+  }, 0);
+
+  // Append live NAV point to timeline if it reflects recent holdings revaluation
+  const todayStr = new Date().toISOString().split('T')[0];
+  const lastTimelinePoint = timeline[timeline.length - 1];
+  if (!lastTimelinePoint || lastTimelinePoint.date !== todayStr || Math.abs(lastTimelinePoint.nav - currentNav) > 0.0001) {
+    timeline.push({
+      date: todayStr,
+      nav: currentNav,
+      totalUnits,
+      portfolioValue: totalFundAUM,
+      txType: 'live_nav',
+      txAmount: 0,
+      note: 'Live Portfolio Mark-to-Market',
+    });
+  }
+
+  // Calculate multi-timeframe returns
+  const timeframes = calculateNavTimeframes(timeline, currentNav, Number(safeFundInfo.initialNav) || 100.0);
+
   // Personal vs Outside Capital Breakdown
   const selfMember = computedMembers.find((m) => m.relationship === "self");
   const partnerMember = computedMembers.find((m) => m.relationship === "partner");
@@ -507,7 +548,128 @@ export function computeFundState(fundInfo = {}, members = [], transactions = [],
     friendsStakeValue,
     holdingsTotal,
     undeployedCash,
+    unrealizedProfit,
+    unrealizedRoiPct,
+    realizedProfit,
+    activeHoldingsCost,
+    activeHoldingsVal,
+    timeframes,
   };
+}
+
+/**
+ * Calculates multi-timeframe performance metrics (1D, 1W, 1M, YTD, ALL)
+ */
+export function calculateNavTimeframes(timeline = [], currentNav = 100, initialNav = 100) {
+  const safeTimeline = Array.isArray(timeline) ? [...timeline] : [];
+  safeTimeline.sort((a, b) => new Date(a.date || '1970-01-01') - new Date(b.date || '1970-01-01'));
+
+  const now = new Date();
+  const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const ytdStart = new Date(now.getFullYear(), 0, 1);
+
+  function getNavAtOrBefore(targetDate, fallbackNav) {
+    if (safeTimeline.length === 0) return fallbackNav;
+    const targetMs = targetDate.getTime();
+    let best = null;
+    for (let i = safeTimeline.length - 1; i >= 0; i--) {
+      const pointMs = new Date(safeTimeline[i].date).getTime();
+      if (pointMs <= targetMs) {
+        best = safeTimeline[i].nav;
+        break;
+      }
+    }
+    return best !== null ? best : (safeTimeline[0]?.nav || fallbackNav);
+  }
+
+  let nav1D = currentNav;
+  if (safeTimeline.length > 1) {
+    nav1D = getNavAtOrBefore(oneDayAgo, safeTimeline[safeTimeline.length - 2]?.nav || currentNav);
+  } else {
+    nav1D = initialNav;
+  }
+
+  const nav1W = getNavAtOrBefore(oneWeekAgo, initialNav);
+  const nav1M = getNavAtOrBefore(oneMonthAgo, initialNav);
+  const navYtd = getNavAtOrBefore(ytdStart, initialNav);
+  const navAll = initialNav || (safeTimeline[0]?.nav || 100);
+
+  function calcMetric(startNav, endNav) {
+    const s = Number(startNav) || 100;
+    const e = Number(endNav) || s;
+    const delta = e - s;
+    const pct = s > 0 ? (delta / s) * 100 : 0;
+    return {
+      startNav: s,
+      endNav: e,
+      delta: Math.round(delta * 10000) / 10000,
+      pct: Math.round(pct * 100) / 100,
+    };
+  }
+
+  return {
+    '1D': calcMetric(nav1D, currentNav),
+    '1W': calcMetric(nav1W, currentNav),
+    '1M': calcMetric(nav1M, currentNav),
+    'YTD': calcMetric(navYtd, currentNav),
+    'ALL': calcMetric(navAll, currentNav),
+  };
+}
+
+/**
+ * Filters timeline points to a specified time horizon
+ */
+export function filterTimelineByRange(timeline = [], rangeKey = 'ALL', currentNav = 100, initialNav = 100) {
+  if (!Array.isArray(timeline) || timeline.length === 0) {
+    return [];
+  }
+
+  const sorted = [...timeline].sort((a, b) => new Date(a.date || '1970-01-01') - new Date(b.date || '1970-01-01'));
+  const now = new Date();
+
+  let cutoffDate = null;
+  if (rangeKey === '1D') {
+    cutoffDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  } else if (rangeKey === '1W') {
+    cutoffDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  } else if (rangeKey === '1M') {
+    cutoffDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  } else if (rangeKey === 'YTD') {
+    cutoffDate = new Date(now.getFullYear(), 0, 1);
+  }
+
+  if (!cutoffDate || rangeKey === 'ALL') {
+    return sorted;
+  }
+
+  const cutoffMs = cutoffDate.getTime();
+  const filtered = sorted.filter((p) => new Date(p.date).getTime() >= cutoffMs);
+
+  if (filtered.length === 0) {
+    const lastPrior = sorted[sorted.length - 1];
+    return [
+      { date: cutoffDate.toISOString().split('T')[0], nav: lastPrior?.nav || initialNav },
+      { date: now.toISOString().split('T')[0], nav: currentNav },
+    ];
+  } else if (filtered.length === 1) {
+    let priorNav = initialNav;
+    for (let i = sorted.length - 1; i >= 0; i--) {
+      if (new Date(sorted[i].date).getTime() < cutoffMs) {
+        priorNav = sorted[i].nav;
+        break;
+      }
+    }
+    const anchor = {
+      date: cutoffDate.toISOString().split('T')[0],
+      nav: priorNav,
+      synthetic: true,
+    };
+    return [anchor, ...filtered];
+  }
+
+  return filtered;
 }
 
 /**

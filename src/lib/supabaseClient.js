@@ -410,6 +410,9 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
         currentValue: currentVal,
         nativeCurrency: parsedCurrency,
         units: parsedUnits > 0 ? parsedUnits : (h.units ? Number(h.units) : null),
+        status: h.status || 'active',
+        realizedPnl: Number(h.realized_pnl || 0),
+        closedAt: h.closed_at || null,
         notes: h.notes || h.note || '',
         isRedacted: false,
       };
@@ -800,11 +803,22 @@ export async function upsertHoldingToSupabase(holding, fundId) {
     payload.units = Number(holding.units);
   }
 
+  if (holding.status) {
+    payload.status = holding.status;
+  }
+
+  if (holding.realizedPnl !== undefined && holding.realizedPnl !== null && holding.realizedPnl !== '') {
+    payload.realized_pnl = Number(holding.realizedPnl) || 0;
+  }
+
   try {
     const { data, error } = await sb.from('holdings').upsert([payload]).select().single();
     if (error) {
-      if (error.message && error.message.includes('units')) {
+      // If units, status, or realized_pnl columns don't exist yet, strip and retry
+      if (error.message && (error.message.includes('units') || error.message.includes('status') || error.message.includes('realized_pnl'))) {
         delete payload.units;
+        delete payload.status;
+        delete payload.realized_pnl;
         const { data: retryData, error: retryErr } = await sb.from('holdings').upsert([payload]).select().single();
         if (retryErr) throw retryErr;
         return retryData;
@@ -813,13 +827,52 @@ export async function upsertHoldingToSupabase(holding, fundId) {
     }
     return data;
   } catch (err) {
-    if (err.message && err.message.includes('units')) {
+    if (err.message && (err.message.includes('units') || err.message.includes('status') || err.message.includes('realized_pnl'))) {
       delete payload.units;
+      delete payload.status;
+      delete payload.realized_pnl;
       const { data: retryData, error: retryErr } = await sb.from('holdings').upsert([payload]).select().single();
       if (retryErr) throw retryErr;
       return retryData;
     }
     throw err;
+  }
+}
+
+export async function recordDailyNavSnapshot(fundId, snapshot) {
+  const sb = getSupabase();
+  if (!sb || !fundId) return null;
+  try {
+    const payload = {
+      fund_id: fundId,
+      date: snapshot.date || new Date().toISOString().split('T')[0],
+      nav: Number(snapshot.nav) || 100,
+      total_aum: Number(snapshot.totalAum || snapshot.totalFundAUM) || 0,
+      total_units: Number(snapshot.totalUnits) || 0,
+      undeployed_cash: Number(snapshot.undeployedCash) || 0,
+      realized_pnl: Number(snapshot.realizedProfit || snapshot.realizedPnl) || 0,
+      unrealized_pnl: Number(snapshot.unrealizedProfit || snapshot.unrealizedPnl) || 0,
+    };
+    const { data, error } = await sb.from('nav_history').upsert([payload], { onConflict: 'fund_id,date' }).select().single();
+    if (error) {
+      console.warn('nav_history snapshot notice:', error.message);
+      return null;
+    }
+    return data;
+  } catch (e) {
+    return null;
+  }
+}
+
+export async function fetchNavHistory(fundId) {
+  const sb = getSupabase();
+  if (!sb || !fundId) return [];
+  try {
+    const { data, error } = await sb.from('nav_history').select('*').eq('fund_id', fundId).order('date', { ascending: true });
+    if (error) return [];
+    return data || [];
+  } catch (e) {
+    return [];
   }
 }
 
