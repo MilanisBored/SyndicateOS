@@ -862,6 +862,7 @@ export default function App() {
           <StatementModal
             member={activeStatementMember}
             fundInfo={appState.fundInfo}
+            fundMetrics={fundMetrics}
             currentNav={fundMetrics.currentNav}
             currency={currency}
             onClose={() => setSelectedMemberForStatement(null)}

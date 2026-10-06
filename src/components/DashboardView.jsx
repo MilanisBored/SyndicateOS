@@ -81,6 +81,36 @@ export default function DashboardView({
     return fundMetrics?.timeframes ? fundMetrics.timeframes[timeRange] : null;
   }, [fundMetrics?.timeframes, timeRange]);
 
+  // Personal Investor Metrics & Balance Sheet breakdown
+  const investorMetrics = useMemo(() => {
+    if (!currentMember) return null;
+    const totalFundUnits = Number(fundMetrics?.totalUnits) > 0 ? Number(fundMetrics.totalUnits) : (Number(currentMember.units) || 1);
+    const ownershipRatio = totalFundUnits > 0 ? (Number(currentMember.units || 0) / totalFundUnits) : ((Number(currentMember.ownershipPct) || 0) / 100);
+    const cashShare = (Number(fundMetrics?.undeployedCash) || 0) * ownershipRatio;
+    const assetShare = (Number(fundMetrics?.holdingsTotal) || 0) * ownershipRatio;
+
+    const tf = fundMetrics?.timeframes || {};
+    const day1 = tf['1D'] || { pct: 0, delta: 0 };
+    const month1 = tf['1M'] || { pct: 0, delta: 0 };
+    const ytd = tf['YTD'] || { pct: 0, delta: 0 };
+
+    const dayProfit = (Number(currentMember.units) || 0) * (day1.delta || 0);
+    const mtdProfit = (Number(currentMember.units) || 0) * (month1.delta || 0);
+    const ytdProfit = (Number(currentMember.units) || 0) * (ytd.delta || 0);
+
+    return {
+      ownershipRatio,
+      cashShare,
+      assetShare,
+      dayProfit,
+      mtdProfit,
+      ytdProfit,
+      day1,
+      month1,
+      ytd
+    };
+  }, [currentMember, fundMetrics]);
+
   // Chart coordinates filtered by active time horizon
   const { points, svgPath, minNav, maxNav, navRange } = useMemo(() => {
     const rawTimeline = fundMetrics.timeline || [];
@@ -169,9 +199,9 @@ export default function DashboardView({
       )}
 
       {/* Adaptive Metric Strip */}
-      <div className="metric-strip">
-        {isInvestor && currentMember ? (
-          <>
+      {isInvestor && currentMember ? (
+        <>
+          <div className="metric-strip mb-3">
             <div className="metric-cell">
               <span className="metric-label">My Portfolio Equity</span>
               <span className="metric-val mono">{formatCurrency(currentMember.currentValue, currency)}</span>
@@ -183,7 +213,15 @@ export default function DashboardView({
             </div>
 
             <div className="metric-cell">
-              <span className="metric-label">My Total Invested</span>
+              <span className="metric-label">Prevailing NAV & Units</span>
+              <span className="metric-val mono">{formatCurrency(fundMetrics.currentNav, currency, { decimals: 2 })}</span>
+              <div className="metric-delta text-muted">
+                <span>{formatNumber(currentMember.units, 4)} units • {formatNumber(currentMember.ownershipPct, 1)}% share</span>
+              </div>
+            </div>
+
+            <div className="metric-cell">
+              <span className="metric-label">Contributed Capital</span>
               <span className="metric-val mono">{formatCurrency(currentMember.totalDeposited, currency)}</span>
               <div className="metric-delta text-muted">
                 <span>Withdrawn: {formatCurrency(currentMember.totalWithdrawn, currency, { decimals: 0 })}</span>
@@ -191,24 +229,63 @@ export default function DashboardView({
             </div>
 
             <div className="metric-cell">
-              <span className="metric-label">My Units & Share</span>
-              <span className="metric-val mono">{formatNumber(currentMember.units, 2)} units</span>
+              <span className="metric-label">Day Profit (1D)</span>
+              <span className={`metric-val mono ${(investorMetrics?.dayProfit || 0) >= 0 ? 'text-profit' : 'text-loss'}`}>
+                {(investorMetrics?.dayProfit || 0) >= 0 ? '+' : ''}{formatCurrency(investorMetrics?.dayProfit || 0, currency, { decimals: 0 })}
+              </span>
+              <div className="metric-delta">
+                <span className={(investorMetrics?.day1?.pct || 0) >= 0 ? 'text-profit' : 'text-loss'}>
+                  {(investorMetrics?.day1?.pct || 0) >= 0 ? '+' : ''}{formatNumber(investorMetrics?.day1?.pct || 0, 2)}% 24h delta
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="metric-strip mb-4">
+            <div className="metric-cell">
+              <span className="metric-label">Cash on Hand (Reserve)</span>
+              <span className="metric-val mono">{formatCurrency(investorMetrics?.cashShare || 0, currency, { decimals: 0 })}</span>
               <div className="metric-delta text-muted">
-                <span>{formatNumber(currentMember.ownershipPct, 1)}% of total pool</span>
+                <span>Liquid dry powder share</span>
               </div>
             </div>
 
             <div className="metric-cell">
-              <span className="metric-label">Syndicate Pool AUM</span>
-              <span className="metric-val mono">{formatCurrency(fundMetrics.totalFundAUM, currency)}</span>
+              <span className="metric-label">Portfolio Asset Backing</span>
+              <span className="metric-val mono">{formatCurrency(investorMetrics?.assetShare || 0, currency, { decimals: 0 })}</span>
               <div className="metric-delta text-muted">
-                <span>Current NAV: {formatCurrency(fundMetrics.currentNav, currency, { decimals: 2 })}</span>
+                <span>Live holdings backing</span>
               </div>
             </div>
-          </>
-        ) : (
-          <>
+
             <div className="metric-cell">
+              <span className="metric-label">Month-to-Date (MTD)</span>
+              <span className={`metric-val mono ${(investorMetrics?.mtdProfit || 0) >= 0 ? 'text-profit' : 'text-loss'}`}>
+                {(investorMetrics?.mtdProfit || 0) >= 0 ? '+' : ''}{formatCurrency(investorMetrics?.mtdProfit || 0, currency, { decimals: 0 })}
+              </span>
+              <div className="metric-delta">
+                <span className={(investorMetrics?.month1?.pct || 0) >= 0 ? 'text-profit' : 'text-loss'}>
+                  {(investorMetrics?.month1?.pct || 0) >= 0 ? '+' : ''}{formatNumber(investorMetrics?.month1?.pct || 0, 2)}% 30d
+                </span>
+              </div>
+            </div>
+
+            <div className="metric-cell">
+              <span className="metric-label">Year-to-Date (YTD)</span>
+              <span className={`metric-val mono ${(investorMetrics?.ytdProfit || 0) >= 0 ? 'text-profit' : 'text-loss'}`}>
+                {(investorMetrics?.ytdProfit || 0) >= 0 ? '+' : ''}{formatCurrency(investorMetrics?.ytdProfit || 0, currency, { decimals: 0 })}
+              </span>
+              <div className="metric-delta">
+                <span className={(investorMetrics?.ytd?.pct || 0) >= 0 ? 'text-profit' : 'text-loss'}>
+                  {(investorMetrics?.ytd?.pct || 0) >= 0 ? '+' : ''}{formatNumber(investorMetrics?.ytd?.pct || 0, 2)}% YTD
+                </span>
+              </div>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="metric-strip">
+          <div className="metric-cell">
               <span className="metric-label">Syndicate Pool AUM</span>
               <span className="metric-val mono">{formatCurrency(fundMetrics.totalFundAUM, currency)}</span>
               <div className="metric-delta">
@@ -243,9 +320,8 @@ export default function DashboardView({
                 <span>Booked: {fundMetrics.realizedProfit >= 0 ? '+' : ''}{formatCurrency(fundMetrics.realizedProfit || 0, currency, { decimals: 0 })}</span>
               </div>
             </div>
-          </>
+          </div>
         )}
-      </div>
 
       {/* Main Grid: Chart & Ownership */}
       <div className="clean-grid-dual">
@@ -358,91 +434,201 @@ export default function DashboardView({
           </div>
         </div>
 
-        {/* Member Equity Breakdown (Institutional Cap Table) */}
-        <div className="card chart-box">
-          <div className="section-head">
-            <span className="section-title">Participants ({fundMetrics?.members?.length || 0})</span>
-            <div className="flex gap-2 items-center">
-              {!isInvestor && (fundMetrics?.members?.length || 0) > 0 && (
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm mono"
-                  style={{ fontSize: 10, padding: '2px 7px' }}
-                  onClick={() => exportMembersToCSV(fundMetrics.members, fundInfo, fundMetrics.currentNav)}
-                  title="Export Cap Table to CSV"
-                >
-                  Export CSV
-                </button>
-              )}
-              {!isInvestor && (
-                <button 
-                  type="button" 
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => onOpenTransactionModal && onOpenTransactionModal()}
-                >
-                  + Entry
-                </button>
-              )}
+        {/* Member Equity Breakdown or Investor Balance Sheet */}
+        {isInvestor && currentMember ? (
+          <div className="card chart-box">
+            <div className="section-head">
+              <div>
+                <span className="section-title">My Balance Sheet & Capital Account</span>
+                <span className="text-xs text-muted mono block mt-0.5">
+                  Live account position & return horizons
+                </span>
+              </div>
+              <button 
+                type="button" 
+                className="btn btn-secondary btn-sm mono"
+                style={{ fontSize: 10, padding: '2px 7px' }}
+                onClick={() => handleSelectMember(currentMember)}
+                title="View Full Investor Tear Sheet & Print PDF"
+              >
+                Full Tear-Sheet
+              </button>
             </div>
-          </div>
 
-          {(fundMetrics?.members?.length || 0) > 4 && (
-            <div className="mb-2">
-              <input
-                type="text"
-                placeholder="Filter participants by name or code..."
-                value={memberSearchTerm}
-                onChange={(e) => setMemberSearchTerm(e.target.value)}
-                className="input input-sm w-full mono"
-                style={{ fontSize: 11, padding: '4px 8px' }}
-              />
-            </div>
-          )}
-
-          <div className="compact-list" style={{ maxHeight: '280px', overflowY: 'auto' }}>
-            {(fundMetrics?.members || [])
-              .filter(m => {
-                if (!memberSearchTerm.trim()) return true;
-                const term = memberSearchTerm.toLowerCase();
-                return (m.name && m.name.toLowerCase().includes(term)) ||
-                       (m.email && m.email.toLowerCase().includes(term)) ||
-                       (m.userCode && m.userCode.toLowerCase().includes(term)) ||
-                       (m.role && m.role.toLowerCase().includes(term));
-              })
-              .map((m) => {
-                const isThisMe = m.id === currentMember?.id || m.isMe;
-                return (
-                  <div 
-                    key={m.id} 
-                    className="compact-list-row"
-                    style={{ cursor: 'pointer', background: isThisMe ? 'rgba(99, 102, 241, 0.06)' : undefined }}
-                    onClick={() => handleSelectMember(m)}
-                    title="View Statement"
-                  >
-                    <div>
-                      <div className="font-medium flex items-center gap-1">
-                        {m.name}
-                        {isThisMe && (
-                          <span className="badge badge-profit mono" style={{ fontSize: 9, padding: '1px 5px' }}>
-                            You
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-muted mono">
-                        {formatNumber(m.units, 2)} units &bull; {formatNumber(m.ownershipPct, 1)}%
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="mono font-semibold">{formatCurrency(m.currentValue, currency)}</div>
-                      <div className={`text-xs mono ${m.totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
-                        {m.totalProfit >= 0 ? '+' : ''}{formatNumber(m.roiPercentage, 1)}%
-                      </div>
-                    </div>
+            <div className="compact-list" style={{ maxHeight: '280px', overflowY: 'auto' }}>
+              <div className="compact-list-row">
+                <div>
+                  <div className="font-medium text-xs">Liquid Cash Reserve (Dry Powder)</div>
+                  <div className="text-xs text-muted mono" style={{ fontSize: 10 }}>Share of unallocated pool reserves</div>
+                </div>
+                <div className="text-right">
+                  <div className="mono font-semibold">{formatCurrency(investorMetrics?.cashShare || 0, currency)}</div>
+                  <div className="text-xs text-muted mono" style={{ fontSize: 10 }}>
+                    {formatNumber(currentMember.currentValue > 0 ? ((investorMetrics?.cashShare || 0) / currentMember.currentValue) * 100 : 0, 1)}% allocation
                   </div>
-                );
-              })}
+                </div>
+              </div>
+
+              <div className="compact-list-row">
+                <div>
+                  <div className="font-medium text-xs">Portfolio Asset Backing</div>
+                  <div className="text-xs text-muted mono" style={{ fontSize: 10 }}>Share of active deployed holdings</div>
+                </div>
+                <div className="text-right">
+                  <div className="mono font-semibold">{formatCurrency(investorMetrics?.assetShare || 0, currency)}</div>
+                  <div className="text-xs text-muted mono" style={{ fontSize: 10 }}>
+                    {formatNumber(currentMember.currentValue > 0 ? ((investorMetrics?.assetShare || 0) / currentMember.currentValue) * 100 : 0, 1)}% allocation
+                  </div>
+                </div>
+              </div>
+
+              <div className="compact-list-row" style={{ background: 'var(--bg-subtle)' }}>
+                <div>
+                  <div className="font-semibold text-xs">Total Member Net Equity</div>
+                  <div className="text-xs text-muted mono" style={{ fontSize: 10 }}>
+                    {formatNumber(currentMember.units, 4)} units @ NAV {formatCurrency(fundMetrics.currentNav, currency, { decimals: 2 })}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="mono font-semibold">{formatCurrency(currentMember.currentValue, currency)}</div>
+                  <div className={`text-xs mono ${currentMember.totalProfit >= 0 ? 'text-profit' : 'text-loss'}`} style={{ fontSize: 10 }}>
+                    {currentMember.totalProfit >= 0 ? '+' : ''}{formatCurrency(currentMember.totalProfit, currency, { decimals: 0 })} ({formatNumber(currentMember.roiPercentage, 1)}%)
+                  </div>
+                </div>
+              </div>
+
+              <div className="compact-list-row">
+                <div>
+                  <div className="font-medium text-xs">Day Profit (1D)</div>
+                  <div className="text-xs text-muted mono" style={{ fontSize: 10 }}>24-hour mark-to-market</div>
+                </div>
+                <div className="text-right">
+                  <div className={`mono font-semibold ${(investorMetrics?.dayProfit || 0) >= 0 ? 'text-profit' : 'text-loss'}`}>
+                    {(investorMetrics?.dayProfit || 0) >= 0 ? '+' : ''}{formatCurrency(investorMetrics?.dayProfit || 0, currency)}
+                  </div>
+                  <div className={`text-xs mono ${(investorMetrics?.day1?.pct || 0) >= 0 ? 'text-profit' : 'text-loss'}`} style={{ fontSize: 10 }}>
+                    {(investorMetrics?.day1?.pct || 0) >= 0 ? '+' : ''}{formatNumber(investorMetrics?.day1?.pct || 0, 2)}% 24h
+                  </div>
+                </div>
+              </div>
+
+              <div className="compact-list-row">
+                <div>
+                  <div className="font-medium text-xs">Month-to-Date (MTD)</div>
+                  <div className="text-xs text-muted mono" style={{ fontSize: 10 }}>Trailing 30-day performance</div>
+                </div>
+                <div className="text-right">
+                  <div className={`mono font-semibold ${(investorMetrics?.mtdProfit || 0) >= 0 ? 'text-profit' : 'text-loss'}`}>
+                    {(investorMetrics?.mtdProfit || 0) >= 0 ? '+' : ''}{formatCurrency(investorMetrics?.mtdProfit || 0, currency)}
+                  </div>
+                  <div className={`text-xs mono ${(investorMetrics?.month1?.pct || 0) >= 0 ? 'text-profit' : 'text-loss'}`} style={{ fontSize: 10 }}>
+                    {(investorMetrics?.month1?.pct || 0) >= 0 ? '+' : ''}{formatNumber(investorMetrics?.month1?.pct || 0, 2)}% 30d
+                  </div>
+                </div>
+              </div>
+
+              <div className="compact-list-row">
+                <div>
+                  <div className="font-medium text-xs">Year-to-Date (YTD)</div>
+                  <div className="text-xs text-muted mono" style={{ fontSize: 10 }}>Calendar year performance</div>
+                </div>
+                <div className="text-right">
+                  <div className={`mono font-semibold ${(investorMetrics?.ytdProfit || 0) >= 0 ? 'text-profit' : 'text-loss'}`}>
+                    {(investorMetrics?.ytdProfit || 0) >= 0 ? '+' : ''}{formatCurrency(investorMetrics?.ytdProfit || 0, currency)}
+                  </div>
+                  <div className={`text-xs mono ${(investorMetrics?.ytd?.pct || 0) >= 0 ? 'text-profit' : 'text-loss'}`} style={{ fontSize: 10 }}>
+                    {(investorMetrics?.ytd?.pct || 0) >= 0 ? '+' : ''}{formatNumber(investorMetrics?.ytd?.pct || 0, 2)}% YTD
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="card chart-box">
+            <div className="section-head">
+              <span className="section-title">Participants ({fundMetrics?.members?.length || 0})</span>
+              <div className="flex gap-2 items-center">
+                {!isInvestor && (fundMetrics?.members?.length || 0) > 0 && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm mono"
+                    style={{ fontSize: 10, padding: '2px 7px' }}
+                    onClick={() => exportMembersToCSV(fundMetrics.members, fundInfo, fundMetrics.currentNav)}
+                    title="Export Cap Table to CSV"
+                  >
+                    Export CSV
+                  </button>
+                )}
+                {!isInvestor && (
+                  <button 
+                    type="button" 
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => onOpenTransactionModal && onOpenTransactionModal()}
+                  >
+                    + Entry
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {(fundMetrics?.members?.length || 0) > 4 && (
+              <div className="mb-2">
+                <input
+                  type="text"
+                  placeholder="Filter participants by name or code..."
+                  value={memberSearchTerm}
+                  onChange={(e) => setMemberSearchTerm(e.target.value)}
+                  className="input input-sm w-full mono"
+                  style={{ fontSize: 11, padding: '4px 8px' }}
+                />
+              </div>
+            )}
+
+            <div className="compact-list" style={{ maxHeight: '280px', overflowY: 'auto' }}>
+              {(fundMetrics?.members || [])
+                .filter(m => {
+                  if (!memberSearchTerm.trim()) return true;
+                  const term = memberSearchTerm.toLowerCase();
+                  return (m.name && m.name.toLowerCase().includes(term)) ||
+                         (m.email && m.email.toLowerCase().includes(term)) ||
+                         (m.userCode && m.userCode.toLowerCase().includes(term)) ||
+                         (m.role && m.role.toLowerCase().includes(term));
+                })
+                .map((m) => {
+                  const isThisMe = m.id === currentMember?.id || m.isMe;
+                  return (
+                    <div 
+                      key={m.id} 
+                      className="compact-list-row"
+                      style={{ cursor: 'pointer', background: isThisMe ? 'rgba(99, 102, 241, 0.06)' : undefined }}
+                      onClick={() => handleSelectMember(m)}
+                      title="View Statement"
+                    >
+                      <div>
+                        <div className="font-medium flex items-center gap-1">
+                          {m.name}
+                          {isThisMe && (
+                            <span className="badge badge-profit mono" style={{ fontSize: 9, padding: '1px 5px' }}>
+                              You
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-muted mono">
+                          {formatNumber(m.units, 2)} units &bull; {formatNumber(m.ownershipPct, 1)}%
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="mono font-semibold">{formatCurrency(m.currentValue, currency)}</div>
+                        <div className={`text-xs mono ${m.totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
+                          {m.totalProfit >= 0 ? '+' : ''}{formatNumber(m.roiPercentage, 1)}%
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Ledger Activity & Search with Pagination (Scaled for 100+ investors) */}

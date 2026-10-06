@@ -184,68 +184,121 @@ export default function SyndicateView({
             ? `Co-Investor (${member.role || 'Member'})` 
             : member.name;
 
+          const totalFundUnits = Number(fundMetrics?.totalUnits) > 0 ? Number(fundMetrics.totalUnits) : (Number(member.units) || 1);
+          const mOwnershipRatio = totalFundUnits > 0 ? (Number(member.units || 0) / totalFundUnits) : ((Number(member.ownershipPct) || 0) / 100);
+          const mCashShare = (Number(fundMetrics?.undeployedCash) || 0) * mOwnershipRatio;
+          const mAssetShare = (Number(fundMetrics?.holdingsTotal) || 0) * mOwnershipRatio;
+
+          const tf = fundMetrics?.timeframes || {};
+          const mDay1 = tf['1D'] || { pct: 0, delta: 0 };
+          const mMonth1 = tf['1M'] || { pct: 0, delta: 0 };
+          const mYtd = tf['YTD'] || { pct: 0, delta: 0 };
+
+          const mDayProfit = (Number(member.units) || 0) * (mDay1.delta || 0);
+          const mMtdProfit = (Number(member.units) || 0) * (mMonth1.delta || 0);
+          const mYtdProfit = (Number(member.units) || 0) * (mYtd.delta || 0);
+
           return (
             <div 
               key={member.id} 
               className="card member-box"
               style={isThisMe ? { border: '1px solid var(--accent)', boxShadow: '0 0 0 1px var(--accent)' } : {}}
             >
-              <div className="member-box-head">
-                <div className="flex-1 min-w-0 pr-2">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-sm truncate">{displayName}</span>
-                    {isThisMe && (
-                      <span className="badge badge-profit mono" style={{ fontSize: 9, padding: '1px 5px' }}>
-                        You
+                <div className="member-box-head">
+                  <div className="flex-1 min-w-0 pr-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-sm truncate">{displayName}</span>
+                      {isThisMe && (
+                        <span className="badge badge-profit mono" style={{ fontSize: 9, padding: '1px 5px' }}>
+                          You
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-xs text-muted">
+                        {member.role}
                       </span>
-                    )}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-xs text-muted">
-                      {member.role}
+                  <div className="shrink-0">
+                    <span className="badge badge-neutral mono font-semibold">
+                      {formatNumber(member.ownershipPct, 1)}%
                     </span>
                   </div>
                 </div>
-                <div className="shrink-0">
-                  <span className="badge badge-neutral mono font-semibold">
-                    {formatNumber(member.ownershipPct, 1)}%
-                  </span>
-                </div>
-              </div>
 
-              <div className="member-box-data">
-                <div className="data-col">
-                  <span className="lbl">Current Equity</span>
-                  <span className="val mono">{formatCurrency(member.currentValue, currency)}</span>
-                  <span className="text-xs text-secondary mono font-medium mt-0.5 block">
-                    {formatNumber(member.units, 4)} units
-                  </span>
-                  <span className="text-xs text-muted mono" style={{ fontSize: 10 }}>
-                    @ NAV {formatCurrency(fundMetrics?.currentNav || 100, currency, { decimals: 2 })}
-                  </span>
+                <div className="member-box-data">
+                  <div className="data-col">
+                    <span className="lbl">Current Equity</span>
+                    <span className="val mono">{formatCurrency(member.currentValue, currency)}</span>
+                    <span className="text-xs text-secondary mono font-medium mt-0.5 block">
+                      {formatNumber(member.units, 4)} units
+                    </span>
+                    <span className="text-xs text-muted mono" style={{ fontSize: 10 }}>
+                      @ NAV {formatCurrency(fundMetrics?.currentNav || 100, currency, { decimals: 2 })}
+                    </span>
+                  </div>
+                  <div className="data-col">
+                    <span className="lbl">Net Return</span>
+                    <span className={`val mono ${member.totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
+                      {member.totalProfit >= 0 ? '+' : ''}{formatCurrency(member.totalProfit, currency, { decimals: 0 })}
+                    </span>
+                    <span className={`text-xs mono ${member.roiPercentage >= 0 ? 'text-profit' : 'text-loss'}`}>
+                      {member.roiPercentage >= 0 ? '+' : ''}{formatNumber(member.roiPercentage, 1)}%
+                    </span>
+                  </div>
+                  <div className="data-col">
+                    <span className="lbl">Capital Contributed</span>
+                    <span className="text-xs mono font-medium mt-1 block">
+                      {formatCurrency(member.totalDeposited, currency, { decimals: 0 })}
+                    </span>
+                    <span className="text-xs text-muted mono block" style={{ fontSize: 10 }}>
+                      Out: {formatCurrency(member.totalWithdrawn, currency, { decimals: 0 })}
+                    </span>
+                  </div>
+                  <div className="data-col">
+                    <span className="lbl">Day Profit (1D)</span>
+                    <span className={`text-xs mono font-medium mt-1 block ${mDayProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
+                      {mDayProfit >= 0 ? '+' : ''}{formatCurrency(mDayProfit, currency, { decimals: 0 })}
+                    </span>
+                    <span className={`text-xs mono block ${mDay1.pct >= 0 ? 'text-profit' : 'text-loss'}`} style={{ fontSize: 10 }}>
+                      {mDay1.pct >= 0 ? '+' : ''}{formatNumber(mDay1.pct, 2)}% 24h
+                    </span>
+                  </div>
                 </div>
-                <div className="data-col">
-                  <span className="lbl">Net Return</span>
-                  <span className={`val mono ${member.totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
-                    {member.totalProfit >= 0 ? '+' : ''}{formatCurrency(member.totalProfit, currency, { decimals: 0 })}
-                  </span>
-                  <span className={`text-xs mono ${member.roiPercentage >= 0 ? 'text-profit' : 'text-loss'}`}>
-                    {member.roiPercentage >= 0 ? '+' : ''}{formatNumber(member.roiPercentage, 1)}%
-                  </span>
+
+                {/* Balance Sheet & Horizons Sub-Strip */}
+                <div 
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(4, 1fr)',
+                    gap: '8px',
+                    borderTop: '1px solid var(--border-subtle)',
+                    paddingTop: '6px',
+                    marginTop: '6px'
+                  }}
+                >
+                  <div>
+                    <span className="text-xs text-muted block mono" style={{ fontSize: 9 }}>Cash on it</span>
+                    <span className="mono font-medium text-xs">{formatCurrency(mCashShare, currency, { decimals: 0 })}</span>
+                  </div>
+                  <div>
+                    <span className="text-xs text-muted block mono" style={{ fontSize: 9 }}>Asset Share</span>
+                    <span className="mono font-medium text-xs">{formatCurrency(mAssetShare, currency, { decimals: 0 })}</span>
+                  </div>
+                  <div>
+                    <span className="text-xs text-muted block mono" style={{ fontSize: 9 }}>MTD Profit</span>
+                    <span className={`mono font-medium text-xs ${mMtdProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
+                      {mMtdProfit >= 0 ? '+' : ''}{formatCurrency(mMtdProfit, currency, { decimals: 0 })}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-xs text-muted block mono" style={{ fontSize: 9 }}>YTD Return</span>
+                    <span className={`mono font-medium text-xs ${mYtdProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
+                      {mYtdProfit >= 0 ? '+' : ''}{formatCurrency(mYtdProfit, currency, { decimals: 0 })} ({mYtd.pct >= 0 ? '+' : ''}{mYtd.pct}%)
+                    </span>
+                  </div>
                 </div>
-                <div className="data-col">
-                  <span className="lbl">Total Deposited</span>
-                  <span className="text-xs mono font-medium mt-1 block">
-                    {formatCurrency(member.totalDeposited, currency, { decimals: 0 })}
-                  </span>
-                </div>
-                <div className="data-col">
-                  <span className="lbl">Total Withdrawn</span>
-                  <span className="text-xs mono font-medium mt-1 block">
-                    {formatCurrency(member.totalWithdrawn, currency, { decimals: 0 })}
-                  </span>
-                </div>
-              </div>
 
               <div className="flex justify-between items-center pt-2">
                 <div className="flex items-center gap-1.5">

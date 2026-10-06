@@ -93,47 +93,62 @@ export default function StatementsView({
               <th>Member</th>
               <th>Role</th>
               <th>Ownership</th>
-              <th>Current Equity</th>
-              <th>Total Inflow</th>
-              <th>Total Outflow</th>
+              <th>Equity</th>
+              <th>Cash on Hand</th>
+              <th>Asset Share</th>
+              <th>Day Profit (1D)</th>
               <th>Net Profit</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {fundMetrics.members.map((m) => (
-              <tr key={m.id}>
-                <td className="font-semibold">{m.name}</td>
-                <td className="text-muted text-xs">{m.role}</td>
-                <td className="mono text-muted">{formatNumber(m.ownershipPct, 1)}%</td>
-                <td className="mono font-semibold">{formatCurrency(m.currentValue, currency)}</td>
-                <td className="mono text-muted">{formatCurrency(m.totalDeposited, currency, { decimals: 0 })}</td>
-                <td className="mono text-muted">{formatCurrency(m.totalWithdrawn, currency, { decimals: 0 })}</td>
-                <td className={`mono ${m.totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
-                  {m.totalProfit >= 0 ? '+' : ''}{formatCurrency(m.totalProfit, currency, { decimals: 0 })} ({formatNumber(m.roiPercentage, 1)}%)
-                </td>
-                <td>
-                  <div className="flex gap-1">
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      style={{ padding: '2px 8px', fontSize: 11 }}
-                      onClick={() => onSelectMember(m)}
-                    >
-                      View
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      style={{ padding: '2px 8px', fontSize: 11 }}
-                      onClick={() => handleCopySummary(m)}
-                    >
-                      {copiedId === m.id ? 'Copied' : 'Copy Text'}
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+            {(fundMetrics?.members || []).map((m) => {
+              const totalFundUnits = Number(fundMetrics?.totalUnits) > 0 ? Number(fundMetrics.totalUnits) : (Number(m.units) || 1);
+              const mOwnershipRatio = totalFundUnits > 0 ? (Number(m.units || 0) / totalFundUnits) : ((Number(m.ownershipPct) || 0) / 100);
+              const mCashShare = (Number(fundMetrics?.undeployedCash) || 0) * mOwnershipRatio;
+              const mAssetShare = (Number(fundMetrics?.holdingsTotal) || 0) * mOwnershipRatio;
+
+              const tf = fundMetrics?.timeframes || {};
+              const mDay1 = tf['1D'] || { pct: 0, delta: 0 };
+              const mDayProfit = (Number(m.units) || 0) * (mDay1.delta || 0);
+
+              return (
+                <tr key={m.id}>
+                  <td className="font-semibold">{m.name}</td>
+                  <td className="text-muted text-xs">{m.role}</td>
+                  <td className="mono text-muted">{formatNumber(m.ownershipPct, 1)}%</td>
+                  <td className="mono font-semibold">{formatCurrency(m.currentValue, currency)}</td>
+                  <td className="mono text-muted">{formatCurrency(mCashShare, currency, { decimals: 0 })}</td>
+                  <td className="mono text-muted">{formatCurrency(mAssetShare, currency, { decimals: 0 })}</td>
+                  <td className={`mono ${mDayProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
+                    {mDayProfit >= 0 ? '+' : ''}{formatCurrency(mDayProfit, currency, { decimals: 0 })}
+                  </td>
+                  <td className={`mono ${m.totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
+                    {m.totalProfit >= 0 ? '+' : ''}{formatCurrency(m.totalProfit, currency, { decimals: 0 })} ({formatNumber(m.roiPercentage, 1)}%)
+                  </td>
+                  <td>
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        style={{ padding: '2px 8px', fontSize: 11 }}
+                        onClick={() => onSelectMember(m)}
+                      >
+                        Tear-Sheet
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        style={{ padding: '2px 8px', fontSize: 11 }}
+                        onClick={() => handleCopySummary(m)}
+                      >
+                        {copiedId === m.id ? 'Copied' : 'Copy'}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
