@@ -17,6 +17,10 @@ const BASE_FALLBACK_RATES_USD = {
   AUD: 1.515,
   JPY: 152.0,
   CHF: 0.885,
+  KRW: 1338.0,
+  HKD: 7.85,
+  NZD: 1.78,
+  CNY: 7.15,
 };
 
 let memoryRates = null;
@@ -51,7 +55,7 @@ export async function fetchFxRates(forceRefresh = false) {
   }
 
   try {
-    const res = await fetch('https://api.frankfurter.app/latest?from=USD');
+    const res = await fetch('https://api.frankfurter.dev/v1/latest?from=USD');
     if (res.ok) {
       const data = await res.json();
       const rates = {

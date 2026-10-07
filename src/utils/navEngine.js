@@ -10,6 +10,11 @@ export const CURRENCIES = {
   GBP: { symbol: '£', code: 'GBP', label: 'GBP (£) - British Pound', locale: 'en-GB' },
   CAD: { symbol: 'CA$', code: 'CAD', label: 'CAD ($) - Canadian Dollar', locale: 'en-CA' },
   AUD: { symbol: 'A$', code: 'AUD', label: 'AUD ($) - Australian Dollar', locale: 'en-AU' },
+  KRW: { symbol: '₩', code: 'KRW', label: 'KRW (₩) - Korean Won', locale: 'ko-KR' },
+  JPY: { symbol: '¥', code: 'JPY', label: 'JPY (¥) - Japanese Yen', locale: 'ja-JP' },
+  CHF: { symbol: 'CHF', code: 'CHF', label: 'CHF - Swiss Franc', locale: 'de-CH' },
+  HKD: { symbol: 'HK$', code: 'HKD', label: 'HKD ($) - Hong Kong Dollar', locale: 'zh-HK' },
+  NZD: { symbol: 'NZ$', code: 'NZD', label: 'NZD ($) - New Zealand Dollar', locale: 'en-NZ' },
   SGD: { symbol: 'S$', code: 'SGD', label: 'SGD ($) - Singapore Dollar', locale: 'en-SG' },
   AED: { symbol: 'AED', code: 'AED', label: 'AED - UAE Dirham', locale: 'en-AE' },
 };

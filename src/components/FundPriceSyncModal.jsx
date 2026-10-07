@@ -44,7 +44,7 @@ export default function FundPriceSyncModal({
     setSyncApplied(false);
 
     try {
-      const summary = await syncUniversalHoldingsBatch(activeHoldings, currency || 'INR', (p) => {
+      const summary = await syncUniversalHoldingsBatch(activeHoldings, currency || 'USD', (p) => {
         setProgress({ current: p.currentIndex, total: p.total, name: p.currentHolding });
       });
 
@@ -90,7 +90,7 @@ export default function FundPriceSyncModal({
     setIsApplying(true);
 
     try {
-      // 1. Update each holding with live value, last NAV, and scheme code
+      // 1. Update each holding with live value, last NAV, native currency, and exchange
       for (const res of syncSummary.results) {
         if (res.success) {
           const target = holdings.find((h) => h.id === res.holdingId);
@@ -99,6 +99,9 @@ export default function FundPriceSyncModal({
               ...target,
               currentValue: res.newValue,
               lastNav: res.liveNav || res.livePrice,
+              lastPrice: res.livePrice || res.liveNav,
+              nativeCurrency: res.nativeCurrency || target.nativeCurrency,
+              exchange: res.exchange || target.exchange,
               schemeCode: res.schemeCode || target.schemeCode || target.ticker,
             });
           }

@@ -2,10 +2,20 @@
 // Connects to:
 // 1. Official AMFI (api.mfapi.in) for Indian Mutual Funds (100% Free, zero keys)
 // 2. CoinGecko Public API for Top Cryptocurrencies (100% Free, zero keys)
-// 3. Global Markets Engine for US / Indian / Global Equities & ETFs
-// 4. Frankfurter ECB feed for automated multi-currency alignment
+// 3. Global Markets Engine for US, Canada (TSX), Australia (ASX), South Korea (KRX),
+//    United Kingdom (LSE), Europe (XETRA/Euronext), Japan (TSE), India (NSE/BSE)
+// 4. Global ISIN (ISO 6166 12-char identifier) auto-resolution to primary tickers
+// 5. Frankfurter ECB feed for automated multi-currency cross-border alignment
 
 import { convertCurrency, fetchFxRates } from './fxService.js';
+
+// Helper for proxy URLs (relative in browser, localhost in test/node environments)
+function getApiUrl(path) {
+  if (typeof window !== 'undefined' && window.location && window.location.origin) {
+    return path;
+  }
+  return `http://localhost:5173${path}`;
+}
 
 // Crypto symbol to CoinGecko ID mapping
 const CRYPTO_COINGECKO_MAP = {
@@ -29,6 +39,67 @@ const CRYPTO_COINGECKO_MAP = {
   USDT: 'tether',
   USDC: 'usd-coin',
 };
+
+/**
+ * Institutional market region and currency detector
+ * Strict rule: NO icons or emojis in output badges; uses clean monospace labels.
+ */
+export function parseMarketRegion(symbol = '', exchange = '', quoteType = '') {
+  const sym = String(symbol || '').toUpperCase();
+  const ex = String(exchange || '').toUpperCase();
+  const qt = String(quoteType || '').toUpperCase();
+
+  if (qt === 'CRYPTOCURRENCY' || sym.endsWith('-USD') || sym === 'BTC' || sym === 'ETH') {
+    return { country: 'Global', countryCode: 'GL', currency: 'USD', badge: '[CRYPTO]' };
+  }
+
+  // Canada (TSX / TSX Venture)
+  if (sym.endsWith('.TO') || sym.endsWith('.V') || ex.includes('TOR') || ex.includes('TSX') || ex.includes('VAN') || ex.includes('CVE')) {
+    return { country: 'Canada', countryCode: 'CA', currency: 'CAD', badge: '[CA / TSX]' };
+  }
+
+  // Australia (ASX)
+  if (sym.endsWith('.AX') || ex.includes('ASX') || ex.includes('AUSTRALIA')) {
+    return { country: 'Australia', countryCode: 'AU', currency: 'AUD', badge: '[AU / ASX]' };
+  }
+
+  // South Korea (KOSPI / KOSDAQ)
+  if (sym.endsWith('.KS') || sym.endsWith('.KQ') || ex.includes('KSC') || ex.includes('KOE') || ex.includes('KSE') || ex.includes('KOREA')) {
+    return { country: 'South Korea', countryCode: 'KR', currency: 'KRW', badge: '[KR / KRX]' };
+  }
+
+  // United Kingdom (LSE)
+  if (sym.endsWith('.L') || sym.endsWith('.IL') || ex.includes('LSE') || ex.includes('LONDON') || ex.includes('IOB')) {
+    return { country: 'United Kingdom', countryCode: 'GB', currency: 'GBP', badge: '[GB / LSE]' };
+  }
+
+  // Germany / Europe (XETRA)
+  if (sym.endsWith('.DE') || sym.endsWith('.F') || ex.includes('GER') || ex.includes('XETRA') || ex.includes('FRA')) {
+    return { country: 'Germany', countryCode: 'DE', currency: 'EUR', badge: '[DE / XETRA]' };
+  }
+
+  // Europe (Euronext Paris / Amsterdam / Brussels)
+  if (sym.endsWith('.PA') || sym.endsWith('.AS') || ex.includes('PAR') || ex.includes('EURONEXT') || ex.includes('AMS')) {
+    return { country: 'Europe', countryCode: 'EU', currency: 'EUR', badge: '[EU / EURONEXT]' };
+  }
+
+  // Japan (Tokyo Stock Exchange)
+  if (sym.endsWith('.T') || ex.includes('JPX') || ex.includes('TSE') || ex.includes('TYO') || ex.includes('TOKYO')) {
+    return { country: 'Japan', countryCode: 'JP', currency: 'JPY', badge: '[JP / TSE]' };
+  }
+
+  // India (NSE / BSE / AMFI)
+  if (sym.endsWith('.NS') || sym.endsWith('.BO') || ex.includes('NSE') || ex.includes('BSE') || ex.includes('NSI') || ex === 'AMFI') {
+    return { country: 'India', countryCode: 'IN', currency: 'INR', badge: ex === 'AMFI' ? '[IN / AMFI]' : '[IN / NSE]' };
+  }
+
+  // United States (NYSE, NASDAQ, AMEX, OTC)
+  if (ex.includes('NAS') || ex.includes('NMS') || ex.includes('NYQ') || ex.includes('NYSE') || ex.includes('BATS') || ex.includes('ARC') || !sym.includes('.')) {
+    return { country: 'United States', countryCode: 'US', currency: 'USD', badge: ex.includes('NY') ? '[US / NYSE]' : '[US / NASDAQ]' };
+  }
+
+  return { country: 'Global', countryCode: 'GL', currency: 'USD', badge: `[${ex || 'GLOBAL'}]` };
+}
 
 /**
  * Search mutual fund schemes on AMFI with intelligent relevance scoring
@@ -140,7 +211,178 @@ export async function searchMutualFundsAMFI(query) {
 }
 
 /**
- * Fetch official NAV for an Indian Mutual Fund scheme
+ * Universal Global Asset Search
+ * Searches stocks, ETFs, mutual funds, and crypto across US, Canada, Australia,
+ * South Korea, UK, Europe, Japan, and India.
+ * Also supports 12-character ISIN auto-resolution.
+ */
+export async function searchGlobalMarkets(query) {
+  const rawTerm = String(query || '').trim();
+  if (!rawTerm || rawTerm.length < 2) return [];
+
+  const upper = rawTerm.toUpperCase();
+  const isISIN = /^[A-Z]{2}[A-Z0-9]{9}\d$/i.test(rawTerm);
+  const isNumericCode = /^\d{5,7}$/.test(rawTerm);
+
+  // 1. ISIN auto-resolution (12 alphanumeric characters)
+  if (isISIN) {
+    try {
+      const res = await fetch(getApiUrl(`/api/ysearch?q=${encodeURIComponent(upper)}&quotesCount=5&newsCount=0`));
+      if (res.ok) {
+        const data = await res.json();
+        const quotes = Array.isArray(data.quotes) ? data.quotes : [];
+        if (quotes.length > 0) {
+          return quotes.map(q => {
+            const region = parseMarketRegion(q.symbol, q.exchDisp || q.exchange, q.quoteType);
+            const isFund = q.quoteType === 'MUTUALFUND' || q.quoteType === 'ETF';
+            return {
+              id: q.symbol,
+              symbol: q.symbol,
+              name: q.longname || q.shortname || q.symbol,
+              exchange: q.exchDisp || q.exchange || '',
+              country: region.country,
+              countryCode: region.countryCode,
+              currency: region.currency,
+              quoteType: q.quoteType || 'EQUITY',
+              category: isFund ? 'Mutual Funds / ETFs' : 'Equities / Stocks',
+              badge: region.badge,
+              isin: upper,
+              source: 'Global Markets (ISIN Resolution)',
+            };
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('ISIN search error:', e);
+    }
+  }
+
+  // 2. Numeric code check:
+  // - Starts with 0 (e.g. 005930 for Korean stocks)
+  // - Or 5-7 digit AMFI scheme code for Indian mutual funds
+  if (isNumericCode) {
+    const numericResults = [];
+    if (rawTerm.startsWith('0')) {
+      try {
+        const res = await fetch(getApiUrl(`/api/ysearch?q=${encodeURIComponent(rawTerm)}&quotesCount=3&newsCount=0`));
+        if (res.ok) {
+          const data = await res.json();
+          const quotes = Array.isArray(data.quotes) ? data.quotes : [];
+          for (const q of quotes) {
+            const region = parseMarketRegion(q.symbol, q.exchDisp || q.exchange, q.quoteType);
+            numericResults.push({
+              id: q.symbol,
+              symbol: q.symbol,
+              name: q.longname || q.shortname || q.symbol,
+              exchange: q.exchDisp || q.exchange,
+              country: region.country,
+              countryCode: region.countryCode,
+              currency: region.currency,
+              quoteType: q.quoteType || 'EQUITY',
+              category: 'Equities / Stocks',
+              badge: region.badge,
+              source: 'Global Markets',
+            });
+          }
+        }
+      } catch (e) {}
+    }
+
+    try {
+      const amfiNav = await fetchMutualFundNav(rawTerm);
+      numericResults.push({
+        id: String(amfiNav.schemeCode),
+        symbol: String(amfiNav.schemeCode),
+        name: amfiNav.schemeName,
+        exchange: 'AMFI',
+        country: 'India',
+        countryCode: 'IN',
+        currency: 'INR',
+        quoteType: 'MUTUALFUND',
+        category: 'Mutual Funds / ETFs',
+        badge: '[IN / AMFI]',
+        source: 'Official AMFI Feed',
+        price: amfiNav.nav,
+        nav: amfiNav.nav,
+      });
+    } catch (e) {}
+
+    if (numericResults.length > 0) return numericResults;
+  }
+
+  // 3. Parallel search across Yahoo Global Markets & AMFI Mutual Funds
+  const promises = [];
+
+  // Yahoo Search (covers US, Canada, Australia, Korea, UK, Japan, Europe, ETFs, Crypto)
+  promises.push(
+    fetch(getApiUrl(`/api/ysearch?q=${encodeURIComponent(rawTerm)}&quotesCount=10&newsCount=0`))
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => {
+        const quotes = Array.isArray(data?.quotes) ? data.quotes : [];
+        return quotes.map(q => {
+          const region = parseMarketRegion(q.symbol, q.exchDisp || q.exchange, q.quoteType);
+          const isFund = q.quoteType === 'MUTUALFUND' || q.quoteType === 'ETF';
+          const isCrypto = q.quoteType === 'CRYPTOCURRENCY';
+          return {
+            id: q.symbol,
+            symbol: q.symbol,
+            name: q.longname || q.shortname || q.symbol,
+            exchange: q.exchDisp || q.exchange || '',
+            country: region.country,
+            countryCode: region.countryCode,
+            currency: region.currency,
+            quoteType: q.quoteType || 'EQUITY',
+            category: isCrypto ? 'Crypto' : isFund ? 'Mutual Funds / ETFs' : 'Equities / Stocks',
+            badge: region.badge,
+            source: 'Global Markets',
+          };
+        });
+      })
+      .catch(() => [])
+  );
+
+  // AMFI search if query looks like a fund name and doesn't contain exchange dots
+  if (!rawTerm.includes('.') && !rawTerm.startsWith('^')) {
+    promises.push(
+      searchMutualFundsAMFI(rawTerm)
+        .then(mfResults => {
+          return mfResults.slice(0, 6).map(item => ({
+            id: String(item.schemeCode),
+            symbol: String(item.schemeCode),
+            name: item.schemeName,
+            exchange: 'AMFI',
+            country: 'India',
+            countryCode: 'IN',
+            currency: 'INR',
+            quoteType: 'MUTUALFUND',
+            category: 'Mutual Funds / ETFs',
+            badge: '[IN / AMFI]',
+            source: 'Official AMFI Feed',
+          }));
+        })
+        .catch(() => [])
+    );
+  }
+
+  const [yahooResults = [], amfiResults = []] = await Promise.all(promises);
+
+  const seen = new Set();
+  const combined = [];
+
+  for (const item of [...yahooResults, ...amfiResults]) {
+    if (!item || !item.symbol) continue;
+    const key = `${item.symbol}_${item.exchange}`.toUpperCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      combined.push(item);
+    }
+  }
+
+  return combined;
+}
+
+/**
+ * Fetch official NAV for an Indian Mutual Fund scheme from AMFI
  */
 export async function fetchMutualFundNav(schemeCodeOrName) {
   const term = String(schemeCodeOrName || '').trim();
@@ -192,6 +434,8 @@ export async function fetchMutualFundNav(schemeCodeOrName) {
     schemeCode: Number(schemeCode),
     fundHouse: result.meta?.fund_house || '',
     category: 'Mutual Funds / ETFs',
+    exchange: 'AMFI',
+    badge: '[IN / AMFI]',
     source: 'Official AMFI Feed',
   };
 }
@@ -218,6 +462,7 @@ export async function fetchCryptoQuote(symbolOrName) {
 
   return {
     price: Number(coinData.usd),
+    nav: Number(coinData.usd),
     priceInr: Number(coinData.inr),
     priceEur: Number(coinData.eur),
     priceGbp: Number(coinData.gbp),
@@ -226,39 +471,108 @@ export async function fetchCryptoQuote(symbolOrName) {
     name: clean === 'BTC' ? 'Bitcoin' : clean === 'ETH' ? 'Ethereum' : clean === 'SOL' ? 'Solana' : clean,
     symbol: clean,
     category: 'Crypto',
+    exchange: 'CoinGecko',
+    badge: '[CRYPTO]',
     source: 'CoinGecko Live',
+    date: new Date().toISOString().split('T')[0],
   };
 }
 
 /**
- * Fetch Global Stock or ETF quote (US, India NSE/BSE, Global)
+ * Fetch quote for an ISIN (ISO 6166 12-character identifier)
  */
-export async function fetchGlobalStockQuote(ticker) {
+export async function fetchISINQuote(isin) {
+  const cleanIsin = String(isin || '').trim().toUpperCase();
+  if (!/^[A-Z]{2}[A-Z0-9]{9}\d$/i.test(cleanIsin)) {
+    throw new Error(`Invalid ISIN format: ${cleanIsin}. Must be 12 alphanumeric characters.`);
+  }
+
+  const res = await fetch(getApiUrl(`/api/ysearch?q=${encodeURIComponent(cleanIsin)}&quotesCount=3&newsCount=0`));
+  if (!res.ok) {
+    throw new Error(`Failed to resolve ISIN ${cleanIsin} via market search.`);
+  }
+
+  const data = await res.json();
+  const quote = data.quotes?.[0];
+  if (!quote || !quote.symbol) {
+    throw new Error(`No market listing found for ISIN ${cleanIsin}.`);
+  }
+
+  const stockQuote = await fetchGlobalStockQuote(quote.symbol);
+  return {
+    ...stockQuote,
+    isin: cleanIsin,
+    name: quote.longname || quote.shortname || stockQuote.name,
+    source: 'Global Markets (ISIN Resolution)',
+  };
+}
+
+/**
+ * Fetch Global Stock, ETF, or US/International Mutual Fund quote
+ * Works natively for US, Canada (TSX), Australia (ASX), South Korea (KRX),
+ * UK (LSE), Europe (XETRA), Japan (TSE), and India (NSE/BSE).
+ */
+export async function fetchGlobalStockQuote(ticker, fundBaseCurrency = '') {
   let symbol = String(ticker || '').trim().toUpperCase();
   if (!symbol) throw new Error('Stock ticker is required.');
 
-  // Auto-append .NS if user types Indian stock without exchange suffix
-  const knownIndianStocks = ['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'ICICIBANK', 'ITC', 'SBIN', 'BHARTIARTL', 'TATAMOTORS'];
+  // Auto-resolve ISIN if 12-character code
+  if (/^[A-Z]{2}[A-Z0-9]{9}\d$/i.test(symbol)) {
+    return await fetchISINQuote(symbol);
+  }
+
+  // Auto-suffix intelligence:
+  // 1. South Korea 6-digit numeric ticker (e.g. 005930 for Samsung)
+  if (/^\d{6}$/.test(symbol)) {
+    if (symbol.startsWith('0') || (fundBaseCurrency && fundBaseCurrency.toUpperCase() === 'KRW')) {
+      symbol = `${symbol}.KS`;
+    }
+  }
+
+  // 2. India: Known large caps without exchange suffix
+  const knownIndianStocks = ['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'ICICIBANK', 'ITC', 'SBIN', 'BHARTIARTL', 'TATAMOTORS', 'WIPRO', 'BAJFINANCE'];
   if (knownIndianStocks.includes(symbol)) {
     symbol = `${symbol}.NS`;
   }
 
   try {
-    const url = `/api/yahoo/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
+    const url = getApiUrl(`/api/yahoo/${encodeURIComponent(symbol)}?interval=1d&range=1d`);
     const res = await fetch(url);
     if (res.ok) {
       const data = await res.json();
       const meta = data?.chart?.result?.[0]?.meta;
-      if (meta && meta.regularMarketPrice) {
+      if (meta && meta.regularMarketPrice !== undefined && meta.regularMarketPrice !== null) {
+        let price = Number(meta.regularMarketPrice);
+        let currency = meta.currency || 'USD';
+
+        // Institutional UK pence adjustment: LSE stocks in GBp are in pence (1/100 of GBP)
+        if (currency === 'GBp') {
+          price = Math.round((price / 100) * 10000) / 10000;
+          currency = 'GBP';
+        }
+
+        const region = parseMarketRegion(meta.symbol || symbol, meta.exchangeName || '', meta.instrumentType);
+        const isFund = meta.instrumentType === 'MUTUALFUND' || meta.instrumentType === 'ETF';
+        const isCrypto = meta.instrumentType === 'CRYPTOCURRENCY';
+
+        const quoteDate = meta.regularMarketTime
+          ? new Date(meta.regularMarketTime * 1000).toISOString().split('T')[0]
+          : new Date().toISOString().split('T')[0];
+
         return {
-          price: Number(meta.regularMarketPrice),
-          currency: meta.currency || (symbol.endsWith('.NS') || symbol.endsWith('.BO') ? 'INR' : 'USD'),
+          price,
+          nav: price,
+          currency: currency || region.currency,
           change24h: Number(meta.regularMarketChangePercent || 0),
-          name: meta.longName || meta.shortName || symbol,
+          name: meta.longName || meta.shortName || meta.symbol || symbol,
           symbol: meta.symbol || symbol,
-          exchange: meta.exchangeName || '',
-          category: 'Equities / Stocks',
+          exchange: meta.fullExchangeName || meta.exchangeName || region.badge.replace(/[\[\]]/g, ''),
+          country: region.country,
+          badge: region.badge,
+          category: isCrypto ? 'Crypto' : isFund ? 'Mutual Funds / ETFs' : 'Equities / Stocks',
+          instrumentType: meta.instrumentType || 'EQUITY',
           source: 'Global Markets',
+          date: quoteDate,
         };
       }
     }
@@ -266,20 +580,42 @@ export async function fetchGlobalStockQuote(ticker) {
     console.warn(`Local proxy fetch for ${symbol} failed:`, err);
   }
 
+  // If direct fetch failed and ticker has no suffix, try searching Yahoo for the top listed ticker
+  if (!symbol.includes('.')) {
+    try {
+      const searchRes = await fetch(getApiUrl(`/api/ysearch?q=${encodeURIComponent(symbol)}&quotesCount=1&newsCount=0`));
+      if (searchRes.ok) {
+        const searchData = await searchRes.json();
+        const topQuote = searchData.quotes?.[0];
+        if (topQuote && topQuote.symbol && topQuote.symbol !== symbol) {
+          return await fetchGlobalStockQuote(topQuote.symbol, fundBaseCurrency);
+        }
+      }
+    } catch (e) {}
+  }
+
   throw new Error(`Could not fetch live market quote for "${symbol}".`);
 }
 
 /**
- * Universal Quote Resolver: Intelligently routes to Crypto, Global Stocks, or Indian Mutual Funds
+ * Universal Quote Resolver
+ * Intelligently routes ISINs, Cryptos, Global Equities, International ETFs,
+ * US Mutual Funds, and Indian AMFI Mutual Funds.
  */
-export async function fetchUniversalQuote(identifier, categoryHint = '') {
+export async function fetchUniversalQuote(identifier, categoryHint = '', fundBaseCurrency = 'USD') {
   const term = String(identifier || '').trim();
   if (!term) throw new Error('Asset identifier is required.');
 
   const upper = term.toUpperCase();
   const cat = (categoryHint || '').toLowerCase();
+  const isISIN = /^[A-Z]{2}[A-Z0-9]{9}\d$/i.test(term);
 
-  // 1. Explicit Crypto or known crypto ticker
+  // 1. ISIN code (US, Canada, Australia, South Korea, UK, Europe, etc.)
+  if (isISIN) {
+    return await fetchISINQuote(upper);
+  }
+
+  // 2. Explicit Crypto or known crypto ticker
   if (cat.includes('crypto') || CRYPTO_COINGECKO_MAP[upper]) {
     try {
       return await fetchCryptoQuote(upper);
@@ -288,43 +624,58 @@ export async function fetchUniversalQuote(identifier, categoryHint = '') {
     }
   }
 
-  // 2. Numeric AMFI code -> Indian Mutual Fund
-  if (/^\d{5,7}$/.test(term)) {
-    return await fetchMutualFundNav(term);
+  // 3. Korean 6-digit stock code (e.g. 005930 for Samsung)
+  if (/^0\d{5}$/.test(term) || (fundBaseCurrency === 'KRW' && /^\d{6}$/.test(term))) {
+    try {
+      return await fetchGlobalStockQuote(`${term}.KS`, fundBaseCurrency);
+    } catch (e) {}
   }
 
-  // 3. Known Mutual Fund names / Category hint
-  if (cat.includes('mutual') || cat.includes('sip') || cat.includes('fund')) {
+  // 4. Numeric AMFI code -> Indian Mutual Fund (5-7 digits)
+  if (/^\d{5,7}$/.test(term)) {
     try {
       return await fetchMutualFundNav(term);
     } catch (e) {
-      // If failed, proceed to try stock search
+      // If AMFI fails, try global stock
     }
   }
 
-  // 4. Try Global Stock / ETF quote
+  // 5. Explicit Indian Mutual Fund category / name
+  if (cat.includes('mutual') || cat.includes('sip') || cat.includes('fund')) {
+    if (fundBaseCurrency === 'INR' || (!term.includes('.') && /^[a-zA-Z\s]{4,}$/.test(term))) {
+      try {
+        return await fetchMutualFundNav(term);
+      } catch (e) {}
+    }
+  }
+
+  // 6. Try Global Stock / ETF / US Mutual Fund quote
   try {
-    return await fetchGlobalStockQuote(term);
+    return await fetchGlobalStockQuote(term, fundBaseCurrency);
   } catch (e) {
-    // 5. Final fallback: try Mutual Fund search if not tried
+    // 7. Final fallback: try AMFI search
     return await fetchMutualFundNav(term);
   }
 }
 
 /**
- * 1-Click Universal Batch Sync: Updates all holdings (Mutual Funds, Stocks, Crypto) to live prices
+ * 1-Click Universal Batch Sync
+ * Updates all holdings (Mutual Funds, Stocks, ETFs, Crypto) across US, Canada,
+ * Australia, South Korea, UK, Europe, Japan, and India to live market prices,
+ * aligning multi-currency values into the Fund's Base Currency via the European
+ * Central Bank FX Engine.
  */
-export async function syncUniversalHoldingsBatch(holdings, fundBaseCurrency = 'INR', onProgress = () => {}) {
+export async function syncUniversalHoldingsBatch(holdings, fundBaseCurrency = 'USD', onProgress = () => {}) {
   // Support flexible signature: (holdings, onProgress) or (holdings, fundBaseCurrency, onProgress)
   let baseCurrency = fundBaseCurrency;
   let progressFn = onProgress;
 
   if (typeof fundBaseCurrency === 'function') {
     progressFn = fundBaseCurrency;
-    baseCurrency = 'INR';
+    baseCurrency = 'USD';
   }
   if (typeof baseCurrency !== 'string') {
-    baseCurrency = 'INR';
+    baseCurrency = 'USD';
   }
   if (typeof progressFn !== 'function') {
     progressFn = () => {};
@@ -343,7 +694,7 @@ export async function syncUniversalHoldingsBatch(holdings, fundBaseCurrency = 'I
     });
 
     const cat = (h.category || '').toLowerCase();
-    // Skip manual categories like Real Estate or Cash without ticker
+    // Skip manual valuation assets like Real Estate or Private Equity or Cash without ticker
     if (cat.includes('estate') || cat.includes('private') || (cat.includes('cash') && !h.ticker)) {
       results.push({
         holdingId: h.id,
@@ -363,26 +714,26 @@ export async function syncUniversalHoldingsBatch(holdings, fundBaseCurrency = 'I
         const tickerClean = String(h.ticker || '').trim();
         const codeClean = String(h.schemeCode || h.amfiCode || '').trim();
 
-        // 1. Direct 5-7 digit AMFI scheme code (fastest & 100% precise)
+        // 1. Direct 5-7 digit AMFI scheme code
         if (/^\d{5,7}$/.test(codeClean)) {
           quote = await fetchMutualFundNav(codeClean);
         } else if (/^\d{5,7}$/.test(tickerClean)) {
           quote = await fetchMutualFundNav(tickerClean);
         } else {
-          // 2. Try official name query first (name has full scheme title)
+          // 2. Try official name query first
           try {
             quote = await fetchMutualFundNav(h.name);
           } catch (nameErr) {
-            // 3. Fallback to ticker if name lookup failed
-            if (tickerClean && tickerClean.toLowerCase() !== (h.name || '').toLowerCase()) {
-              quote = await fetchMutualFundNav(tickerClean);
-            } else {
+            // 3. Fallback to universal quote (handles US/Global Mutual Funds e.g. VFIAX)
+            try {
+              quote = await fetchUniversalQuote(tickerClean || h.name, h.category, baseCurrency);
+            } catch (uErr) {
               throw nameErr;
             }
           }
         }
       } else {
-        quote = await fetchUniversalQuote(h.ticker || h.name, h.category);
+        quote = await fetchUniversalQuote(h.ticker || h.name, h.category, baseCurrency);
       }
 
       const livePrice = quote.price || quote.nav;
@@ -417,6 +768,8 @@ export async function syncUniversalHoldingsBatch(holdings, fundBaseCurrency = 'I
         liveNav,
         navDate: quote.date,
         priceDate: quote.date || new Date().toISOString().split('T')[0],
+        exchange: quote.exchange,
+        badge: quote.badge,
         success: true,
         source: quote.source,
       });
@@ -441,4 +794,3 @@ export async function syncUniversalHoldingsBatch(holdings, fundBaseCurrency = 'I
 
 // Backwards-compatibility alias
 export const syncMutualFundHoldingsBatch = syncUniversalHoldingsBatch;
-

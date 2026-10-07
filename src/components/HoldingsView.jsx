@@ -1,10 +1,14 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { formatCurrency, formatNumber } from '../utils/navEngine';
 import { 
+  searchGlobalMarkets,
   searchMutualFundsAMFI,
   fetchMutualFundNav,
+  fetchUniversalQuote,
+  syncUniversalHoldingsBatch,
   syncMutualFundHoldingsBatch
 } from '../services/marketDataService';
+import { convertCurrency, fetchFxRates } from '../services/fxService';
 
 export default function HoldingsView({ 
   holdings, 
@@ -41,11 +45,14 @@ export default function HoldingsView({
   const [isFetchingSingleQuote, setIsFetchingSingleQuote] = useState(false);
   const [singleQuoteStatus, setSingleQuoteStatus] = useState('');
 
-  // Live AMFI search suggestions state
-  const [fundSuggestions, setFundSuggestions] = useState([]);
-  const [isSearchingFund, setIsSearchingFund] = useState(false);
+  // Universal search suggestions state (US, CA, AU, KR, UK, IN, Crypto)
+  const [assetSuggestions, setAssetSuggestions] = useState([]);
+  const [isSearchingAsset, setIsSearchingAsset] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [latestNavPrice, setLatestNavPrice] = useState(null);
+  const [latestNativeCurrency, setLatestNativeCurrency] = useState(currency || 'USD');
+  const [latestExchange, setLatestExchange] = useState('');
+  const [latestIsin, setLatestIsin] = useState('');
   const searchDebounceRef = useRef(null);
   const autocompleteContainerRef = useRef(null);
 
@@ -126,9 +133,12 @@ export default function HoldingsView({
     setRealizedPnlInput('');
     setNotes('');
     setSingleQuoteStatus('');
-    setFundSuggestions([]);
+    setAssetSuggestions([]);
     setShowSuggestions(false);
     setLatestNavPrice(null);
+    setLatestNativeCurrency(currency || 'USD');
+    setLatestExchange('');
+    setLatestIsin('');
     setIsEditing(true);
   };
 
@@ -144,9 +154,12 @@ export default function HoldingsView({
     setRealizedPnlInput(ast.realizedPnl !== undefined && ast.realizedPnl !== null ? ast.realizedPnl : '');
     setNotes(ast.notes || '');
     setSingleQuoteStatus('');
-    setFundSuggestions([]);
+    setAssetSuggestions([]);
     setShowSuggestions(false);
-    setLatestNavPrice(null);
+    setLatestNavPrice(ast.lastPrice || ast.lastNav || null);
+    setLatestNativeCurrency(ast.nativeCurrency || currency || 'USD');
+    setLatestExchange(ast.exchange || '');
+    setLatestIsin(ast.isin || '');
     setIsEditing(true);
   };
 
@@ -159,48 +172,67 @@ export default function HoldingsView({
 
     const trimmed = val.trim();
     if (trimmed.length < 2) {
-      setFundSuggestions([]);
+      setAssetSuggestions([]);
       setShowSuggestions(false);
-      setIsSearchingFund(false);
+      setIsSearchingAsset(false);
       return;
     }
 
-    // Live search AMFI as user types
-    setIsSearchingFund(true);
+    // Universal multi-market search as user types
+    setIsSearchingAsset(true);
     searchDebounceRef.current = setTimeout(async () => {
       try {
-        const results = await searchMutualFundsAMFI(trimmed);
-        setFundSuggestions(results);
+        const results = await searchGlobalMarkets(trimmed);
+        setAssetSuggestions(results);
         setShowSuggestions(results.length > 0);
       } catch (err) {
-        console.error('AMFI search error:', err);
+        console.error('Universal asset search error:', err);
       } finally {
-        setIsSearchingFund(false);
+        setIsSearchingAsset(false);
       }
     }, 200);
   };
 
   const handleSelectSuggestion = async (item) => {
-    setName(item.schemeName);
-    setTicker(String(item.schemeCode));
-    setCategory('Mutual Funds / ETFs');
-    setFundSuggestions([]);
+    setName(item.name || item.symbol);
+    setTicker(item.symbol);
+    if (item.category) setCategory(item.category);
+    const quoteCur = item.currency || currency || 'USD';
+    setLatestNativeCurrency(quoteCur);
+    setLatestExchange(item.exchange || '');
+    if (item.isin) setLatestIsin(item.isin);
+    setAssetSuggestions([]);
     setShowSuggestions(false);
 
-    // Auto-fetch latest NAV immediately
+    // Auto-fetch latest quote & convert to fund base currency
     setIsFetchingSingleQuote(true);
-    setSingleQuoteStatus(`Fetching live NAV for ${item.schemeName}...`);
+    setSingleQuoteStatus(`Fetching live quote for ${item.symbol}...`);
     try {
-      const res = await fetchMutualFundNav(item.schemeCode);
-      setLatestNavPrice(res.nav);
-      setSingleQuoteStatus(`Live AMFI NAV: ${formatCurrency(res.nav, currency, { decimals: 4 })} (Declared: ${res.date})`);
+      const res = await fetchUniversalQuote(item.symbol, item.category, currency);
+      const quotePrice = res.price || res.nav;
+      setLatestNavPrice(quotePrice);
+      const resolvedCur = res.currency || quoteCur;
+      setLatestNativeCurrency(resolvedCur);
+      setLatestExchange(res.exchange || item.exchange || '');
+
+      let quoteStatusText = `Live: ${formatNumber(quotePrice, 4)} ${resolvedCur}`;
+      let basePrice = quotePrice;
+
+      if (resolvedCur.toUpperCase() !== (currency || 'USD').toUpperCase()) {
+        const rates = await fetchFxRates();
+        basePrice = convertCurrency(quotePrice, resolvedCur, currency, rates);
+        quoteStatusText += ` (~ ${formatCurrency(basePrice, currency, { decimals: 4 })})`;
+      }
+      setSingleQuoteStatus(`${quoteStatusText} [${res.badge || res.exchange || 'GLOBAL'}]`);
 
       const numUnits = Number(units);
       if (numUnits && numUnits > 0) {
-        setCurrentValue(Math.round(numUnits * res.nav * 100) / 100);
+        setCurrentValue(Math.round(numUnits * basePrice * 100) / 100);
+      } else if (!currentValue) {
+        setCurrentValue(Math.round(basePrice * 100) / 100);
       }
     } catch (err) {
-      setSingleQuoteStatus(`Error fetching NAV: ${err.message}`);
+      setSingleQuoteStatus(`Note: ${err.message}`);
     } finally {
       setIsFetchingSingleQuote(false);
     }
@@ -217,25 +249,40 @@ export default function HoldingsView({
   const handleFetchSingleQuote = async () => {
     const term = ticker.trim() || name.trim();
     if (!term) {
-      alert('Please enter a Mutual Fund Scheme Name or 6-digit Code (e.g. Parag Parikh Flexi Cap, SBI Small Cap, HDFC Top 100).');
+      alert('Please enter an Asset Name, Ticker (e.g. AAPL, SHOP.TO, BHP.AX, 005930.KS), ISIN, or AMFI code.');
       return;
     }
 
     setIsFetchingSingleQuote(true);
-    setSingleQuoteStatus('Fetching official NAV from AMFI (mfapi.in)...');
+    setSingleQuoteStatus('Fetching live market quote across global exchanges...');
 
     try {
-      const res = await fetchMutualFundNav(term);
-      setLatestNavPrice(res.nav);
-      setSingleQuoteStatus(`NAV: ${formatCurrency(res.nav, currency, { decimals: 4 })} (Date: ${res.date})`);
-      if (!name) setName(res.schemeName);
-      if (!ticker && res.schemeCode) setTicker(String(res.schemeCode));
+      const res = await fetchUniversalQuote(term, category, currency);
+      const quotePrice = res.price || res.nav;
+      setLatestNavPrice(quotePrice);
+      const quoteCur = res.currency || currency;
+      setLatestNativeCurrency(quoteCur);
+      setLatestExchange(res.exchange || '');
+      if (res.isin) setLatestIsin(res.isin);
+
+      let quoteStatusText = `Live: ${formatNumber(quotePrice, 4)} ${quoteCur}`;
+      let basePrice = quotePrice;
+
+      if (quoteCur.toUpperCase() !== (currency || 'USD').toUpperCase()) {
+        const rates = await fetchFxRates();
+        basePrice = convertCurrency(quotePrice, quoteCur, currency, rates);
+        quoteStatusText += ` (~ ${formatCurrency(basePrice, currency, { decimals: 4 })})`;
+      }
+      setSingleQuoteStatus(`${quoteStatusText} [${res.badge || res.exchange || 'GLOBAL'}]`);
+
+      if (!name) setName(res.name || term);
+      if (!ticker && res.symbol) setTicker(res.symbol);
 
       const numUnits = Number(units);
       if (numUnits && numUnits > 0) {
-        setCurrentValue(Math.round(numUnits * res.nav * 100) / 100);
+        setCurrentValue(Math.round(numUnits * basePrice * 100) / 100);
       } else if (!currentValue) {
-        setCurrentValue(res.nav);
+        setCurrentValue(Math.round(basePrice * 100) / 100);
       }
     } catch (err) {
       setSingleQuoteStatus(`Error: ${err.message}`);
@@ -259,6 +306,11 @@ export default function HoldingsView({
       status: holdingStatus,
       realizedPnl: realizedPnlInput !== '' ? Number(realizedPnlInput) : 0,
       notes: notes.trim(),
+      nativeCurrency: latestNativeCurrency || editingAsset?.nativeCurrency || currency,
+      exchange: latestExchange || editingAsset?.exchange || '',
+      isin: latestIsin || editingAsset?.isin || '',
+      lastPrice: latestNavPrice || editingAsset?.lastPrice || null,
+      lastPriceAt: latestNavPrice ? new Date().toISOString() : editingAsset?.lastPriceAt || null,
     };
 
     onSaveHolding(payload);
@@ -268,11 +320,11 @@ export default function HoldingsView({
   // Run the 1-Click Batch Price Sync for Mutual Funds
   const handleRunBatchSync = async () => {
     setIsBatchSyncing(true);
-    setBatchProgress({ current: 0, total: holdings.length, name: 'Starting AMFI live sync...' });
+    setBatchProgress({ current: 0, total: holdings.length, name: 'Starting Universal Multi-Asset Live Sync...' });
     setBatchSummary(null);
 
     try {
-      const syncResult = await syncMutualFundHoldingsBatch(holdings, currency || 'INR', (p) => {
+      const syncResult = await syncUniversalHoldingsBatch(holdings, currency || 'USD', (p) => {
         setBatchProgress({ current: p.currentIndex, total: p.total, name: p.currentHolding });
       });
 
@@ -285,6 +337,9 @@ export default function HoldingsView({
               ...target,
               currentValue: res.newValue,
               lastNav: res.liveNav || res.livePrice,
+              lastPrice: res.livePrice || res.liveNav,
+              nativeCurrency: res.nativeCurrency || target.nativeCurrency,
+              exchange: res.exchange || target.exchange,
               schemeCode: res.schemeCode || target.schemeCode || target.ticker,
             });
           }
@@ -298,7 +353,7 @@ export default function HoldingsView({
 
       setBatchSummary(syncResult);
     } catch (err) {
-      alert(`AMFI sync failed: ${err.message}`);
+      alert(`Universal sync failed: ${err.message}`);
     } finally {
       setIsBatchSyncing(false);
       setBatchProgress(null);
@@ -610,9 +665,21 @@ export default function HoldingsView({
                   return (
                     <tr key={ast.id}>
                       <td className="mono font-semibold">
-                        {ast.ticker}
+                        <div>
+                          <span>{ast.ticker}</span>
+                          {ast.exchange && (
+                            <span className="badge badge-neutral mono" style={{ fontSize: 9, marginLeft: 6 }}>
+                              {ast.exchange}
+                            </span>
+                          )}
+                          {ast.nativeCurrency && ast.nativeCurrency !== currency && (
+                            <span className="badge badge-neutral mono" style={{ fontSize: 9, marginLeft: 4 }}>
+                              {ast.nativeCurrency}
+                            </span>
+                          )}
+                        </div>
                         {ast.status === 'closed' && (
-                          <span className="badge badge-neutral mono" style={{ fontSize: 9, marginLeft: 6 }}>CLOSED</span>
+                          <span className="badge badge-neutral mono" style={{ fontSize: 9, marginTop: 2, display: 'inline-block' }}>CLOSED</span>
                         )}
                       </td>
                       <td className="font-medium">
@@ -729,6 +796,11 @@ export default function HoldingsView({
                             title="Click to quickly update weekly/daily price"
                           >
                             <span className="mono font-semibold">{formatCurrency(ast.currentValue, currency)}</span>
+                            {ast.nativeCurrency && ast.nativeCurrency !== currency && ast.lastPrice && (
+                              <div className="text-xxs text-muted mono">
+                                @ {formatNumber(ast.lastPrice, 2)} {ast.nativeCurrency}
+                              </div>
+                            )}
                             <span className="text-xs text-muted hover:underline" style={{ fontSize: 10 }}>(edit)</span>
                           </div>
                         )}
@@ -825,67 +897,64 @@ export default function HoldingsView({
             <form onSubmit={handleSave}>
               <div className="form-group" ref={autocompleteContainerRef}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
-                  <label className="form-label" style={{ marginBottom: 0 }}>Investment / Scheme Name</label>
-                  {category === 'Mutual Funds / ETFs' && (
-                    <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-                      Type 2+ characters for live AMFI suggestions
-                    </span>
-                  )}
+                  <label className="form-label" style={{ marginBottom: 0 }}>Investment / Asset / Scheme Name</label>
+                  <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                    Universal search (US, CA, AU, KR, UK, IN, Crypto, ISIN)
+                  </span>
                 </div>
                 <div className="autocomplete-container">
                   <input
                     type="text"
-                    placeholder={
-                      category === 'Mutual Funds / ETFs'
-                        ? "Search fund (e.g. Parag Parikh, Quant Small Cap, Mirae, HDFC)..."
-                        : "e.g. HDFC 1-Year FD (7.4%) or Gold ETF"
-                    }
+                    placeholder="Search name, ticker (e.g. AAPL, SHOP.TO, BHP.AX, 005930.KS), ISIN, or AMFI code..."
                     value={name}
                     onChange={(e) => handleNameChange(e.target.value)}
                     onFocus={() => {
-                      if (fundSuggestions.length > 0) setShowSuggestions(true);
+                      if (assetSuggestions.length > 0) setShowSuggestions(true);
                     }}
                     className="form-input"
                     required
                     autoComplete="off"
                   />
-                  {isSearchingFund && (
-                    <div style={{ position: 'absolute', right: 10, top: 7, fontSize: 11, color: 'var(--text-muted)' }}>
-                      Searching AMFI...
+                  {isSearchingAsset && (
+                    <div style={{ position: 'absolute', right: 10, top: 7, fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                      Searching markets...
                     </div>
                   )}
-                  {showSuggestions && fundSuggestions.length > 0 && (
-                    <div className="autocomplete-dropdown">
-                      {fundSuggestions.map((item) => {
-                        const isDirect = item.schemeName.toLowerCase().includes('direct');
-                        const isGrowth = item.schemeName.toLowerCase().includes('growth');
+                  {showSuggestions && assetSuggestions.length > 0 && (
+                    <div className="autocomplete-dropdown" style={{ maxHeight: 280, overflowY: 'auto' }}>
+                      {assetSuggestions.map((item) => {
                         return (
                           <div
-                            key={item.schemeCode}
+                            key={`${item.symbol}_${item.exchange}`}
                             className="autocomplete-item"
                             onClick={() => handleSelectSuggestion(item)}
                           >
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1, minWidth: 0 }}>
-                              <span className="autocomplete-item-name" style={{ wordBreak: 'break-word' }}>
-                                {item.schemeName}
+                              <span className="autocomplete-item-name" style={{ wordBreak: 'break-word', fontWeight: 500 }}>
+                                {item.name}
                               </span>
-                              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                                {isDirect && (
-                                  <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'rgba(34, 197, 94, 0.15)', color: '#22c55e', fontWeight: 600 }}>
-                                    DIRECT
-                                  </span>
-                                )}
-                                {isGrowth && (
-                                  <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'rgba(255, 255, 255, 0.08)', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                                    GROWTH
-                                  </span>
-                                )}
-                                <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                                  #{item.schemeCode}
+                              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                                <span className="mono font-semibold" style={{ fontSize: 11, color: 'var(--text-primary)' }}>
+                                  {item.symbol}
                                 </span>
+                                {item.badge && (
+                                  <span className="badge badge-neutral mono" style={{ fontSize: 9 }}>
+                                    {item.badge}
+                                  </span>
+                                )}
+                                {item.currency && (
+                                  <span className="mono text-muted" style={{ fontSize: 10 }}>
+                                    {item.currency}
+                                  </span>
+                                )}
+                                {item.isin && (
+                                  <span className="mono text-muted" style={{ fontSize: 9 }}>
+                                    ISIN: {item.isin}
+                                  </span>
+                                )}
                               </div>
                             </div>
-                            <span className="btn btn-secondary btn-sm" style={{ fontSize: 10, padding: '2px 8px', pointerEvents: 'none' }}>
+                            <span className="btn btn-secondary btn-sm mono" style={{ fontSize: 10, padding: '2px 8px', pointerEvents: 'none' }}>
                               Select
                             </span>
                           </div>
