@@ -44,6 +44,7 @@ const MemberModal = lazy(() => import('./components/MemberModal'));
 const StatementModal = lazy(() => import('./components/StatementModal'));
 const CreateFundModal = lazy(() => import('./components/CreateFundModal'));
 const ActionCenterModal = lazy(() => import('./components/ActionCenterModal'));
+const FundPriceSyncModal = lazy(() => import('./components/FundPriceSyncModal'));
 
 import './App.css';
 
@@ -288,6 +289,7 @@ export default function App() {
   const [isCreateFundModalOpen, setIsCreateFundModalOpen] = useState(false);
   const [selectedMemberForStatement, setSelectedMemberForStatement] = useState(null);
   const [isActionCenterOpen, setIsActionCenterOpen] = useState(false);
+  const [isPriceSyncModalOpen, setIsPriceSyncModalOpen] = useState(false);
 
   // Dual Perspective: 'auto' adapts to whether user owns this fund; manager can toggle preview
   const [perspectiveMode, setPerspectiveMode] = useState('auto');
@@ -727,6 +729,7 @@ export default function App() {
           isGuest={false}
           availableFunds={availableFunds}
           onSwitchFund={(fId) => refreshFromSupabase(fId)}
+          onOpenPriceSync={() => setIsPriceSyncModalOpen(true)}
         />
 
       {cloudError && (
@@ -764,6 +767,7 @@ export default function App() {
               onConfirmTransaction={handleConfirmTransaction}
               onSelectMember={(m) => setSelectedMemberForStatement(m)}
               onOpenActionCenter={() => setIsActionCenterOpen(true)}
+              onOpenPriceSync={() => setIsPriceSyncModalOpen(true)}
             />
           )}
 
@@ -894,6 +898,20 @@ export default function App() {
               setIsActionCenterOpen(false);
               handleOpenTransactionModal();
             }}
+          />
+        )}
+
+        {isPriceSyncModalOpen && (
+          <FundPriceSyncModal
+            isOpen={isPriceSyncModalOpen}
+            onClose={() => setIsPriceSyncModalOpen(false)}
+            holdings={appState.holdings}
+            fundInfo={appState.fundInfo}
+            fundMetrics={fundMetrics}
+            currency={currency}
+            onSaveHolding={handleSaveHolding}
+            onAddTransaction={handleAddTransaction}
+            onSyncValuationToNAV={handleSyncHoldingsToNAV}
           />
         )}
       </Suspense>

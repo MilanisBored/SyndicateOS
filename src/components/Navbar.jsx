@@ -24,7 +24,8 @@ export default function Navbar({
   onSignOut,
   isGuest,
   availableFunds = [],
-  onSwitchFund
+  onSwitchFund,
+  onOpenPriceSync
 }) {
   const tabs = [
     { id: 'dashboard', label: 'Overview' },
@@ -237,13 +238,27 @@ export default function Navbar({
                 Statement
               </button>
             ) : (
-              <button 
-                type="button" 
-                className="btn btn-primary btn-sm topbar-cta-btn mono"
-                onClick={onOpenTransactionModal}
-              >
-                + Transaction
-              </button>
+              <div className="flex items-center gap-1">
+                {onOpenPriceSync && (
+                  <button 
+                    type="button" 
+                    className="btn btn-secondary btn-sm mono"
+                    onClick={onOpenPriceSync}
+                    title="1-Click Universal Sync: Fetch latest official AMFI NAVs, Stock & Crypto prices"
+                    style={{ fontSize: 11, padding: '3px 8px' }}
+                  >
+                    Sync Prices
+                  </button>
+                )}
+                <button 
+                  type="button" 
+                  className="btn btn-primary btn-sm topbar-cta-btn mono"
+                  onClick={onOpenTransactionModal}
+                  style={{ fontSize: 11, padding: '3px 8px' }}
+                >
+                  + Transaction
+                </button>
+              </div>
             )}
 
             {/* User Session: Name Tab with Code Underneath & Dropdown with Lock/SignOut */}

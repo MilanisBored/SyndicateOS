@@ -27,7 +27,8 @@ export default function DashboardView({
   onConfirmTransaction,
   onSelectMember,
   onOpenStatementModal,
-  onOpenActionCenter
+  onOpenActionCenter,
+  onOpenPriceSync
 }) {
   const [hoveredPoint, setHoveredPoint] = useState(null);
   const [copiedSummary, setCopiedSummary] = useState(false);
@@ -262,6 +263,29 @@ export default function DashboardView({
             style={{ fontSize: 11, padding: '2px 8px' }}
           >
             Review in Action Center [ACT: {pendingInvestorTx.length}] &rarr;
+          </button>
+        </div>
+      )}
+
+      {/* Manager Mark-to-Market Price Sync Strip */}
+      {!isInvestor && onOpenPriceSync && (
+        <div 
+          className="card px-3 py-2 mb-3 flex justify-between items-center text-xs"
+          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}
+        >
+          <div className="flex items-center gap-2">
+            <span className="badge badge-neutral mono font-semibold" style={{ fontSize: 9, padding: '2px 6px' }}>VALUATION ENGINE</span>
+            <span className="text-muted text-xs">
+              Prevailing NAV: <strong className="text-primary mono">{formatCurrency(fundMetrics.currentNav, currency, { decimals: 2 })}</strong> • Mark portfolio assets to official live closing prices.
+            </span>
+          </div>
+          <button 
+            type="button" 
+            className="btn btn-secondary btn-sm mono"
+            onClick={onOpenPriceSync}
+            style={{ fontSize: 11, padding: '3px 9px' }}
+          >
+            Sync Live Prices
           </button>
         </div>
       )}
