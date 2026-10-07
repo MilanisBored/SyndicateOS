@@ -37,9 +37,17 @@ export async function searchMutualFundsAMFI(query) {
   const rawTerm = String(query || '').trim();
   if (!rawTerm || rawTerm.length < 2) return [];
 
+  // Punctuation clean: Remove parentheses, brackets, hyphens, slashes
+  const cleanTerm = rawTerm
+    .replace(/[()\-–—\[\]\/]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
   let data = [];
+
+  // Pass 1: Try clean term query
   try {
-    const res = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(rawTerm)}`);
+    const res = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(cleanTerm)}`);
     if (res.ok) {
       data = await res.json();
     }
@@ -47,17 +55,35 @@ export async function searchMutualFundsAMFI(query) {
     console.error('AMFI search error:', err);
   }
 
-  // Fallback: If query has words like "fund", "plan", etc., try stripped search
+  // Pass 2: If no results, strip noise words and search leading brand/fund keywords
   if (!Array.isArray(data) || data.length === 0) {
-    const words = rawTerm.split(/\s+/).filter(w => !['fund', 'plan', 'growth', 'direct', 'option', 'cap'].includes(w.toLowerCase()));
+    const noiseWords = ['fund', 'plan', 'growth', 'direct', 'option', 'regular', 'idcw', 'dividend', 'etf', 'index', 'cap'];
+    const words = cleanTerm.split(/\s+/).filter(w => !noiseWords.includes(w.toLowerCase()));
     if (words.length >= 2) {
       try {
-        const fallbackRes = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(words.slice(0, 3).join(' '))}`);
+        const fallbackRes = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(words.slice(0, 2).join(' '))}`);
+        if (fallbackRes.ok) {
+          data = await fallbackRes.json();
+        }
+      } catch (e) {}
+    } else if (words.length === 1 && words[0].length >= 3) {
+      try {
+        const fallbackRes = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(words[0])}`);
         if (fallbackRes.ok) {
           data = await fallbackRes.json();
         }
       } catch (e) {}
     }
+  }
+
+  // Pass 3: If still no results and rawTerm differed from cleanTerm, try rawTerm directly
+  if ((!Array.isArray(data) || data.length === 0) && rawTerm !== cleanTerm) {
+    try {
+      const res = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(rawTerm)}`);
+      if (res.ok) {
+        data = await res.json();
+      }
+    } catch (e) {}
   }
 
   if (!Array.isArray(data) || data.length === 0) return [];
@@ -289,14 +315,30 @@ export async function fetchUniversalQuote(identifier, categoryHint = '') {
  * 1-Click Universal Batch Sync: Updates all holdings (Mutual Funds, Stocks, Crypto) to live prices
  */
 export async function syncUniversalHoldingsBatch(holdings, fundBaseCurrency = 'INR', onProgress = () => {}) {
+  // Support flexible signature: (holdings, onProgress) or (holdings, fundBaseCurrency, onProgress)
+  let baseCurrency = fundBaseCurrency;
+  let progressFn = onProgress;
+
+  if (typeof fundBaseCurrency === 'function') {
+    progressFn = fundBaseCurrency;
+    baseCurrency = 'INR';
+  }
+  if (typeof baseCurrency !== 'string') {
+    baseCurrency = 'INR';
+  }
+  if (typeof progressFn !== 'function') {
+    progressFn = () => {};
+  }
+
   const fxRates = await fetchFxRates();
   const results = [];
+  const safeHoldings = Array.isArray(holdings) ? holdings : [];
 
-  for (let i = 0; i < holdings.length; i++) {
-    const h = holdings[i];
-    onProgress({
+  for (let i = 0; i < safeHoldings.length; i++) {
+    const h = safeHoldings[i];
+    progressFn({
       currentIndex: i + 1,
-      total: holdings.length,
+      total: safeHoldings.length,
       currentHolding: h.name || h.ticker,
     });
 
@@ -314,11 +356,40 @@ export async function syncUniversalHoldingsBatch(holdings, fundBaseCurrency = 'I
     }
 
     try {
-      const quote = await fetchUniversalQuote(h.ticker || h.name, h.category);
-      const livePrice = quote.price;
-      const quoteCurrency = quote.currency || h.nativeCurrency || fundBaseCurrency;
+      let quote = null;
+      const isMutualFund = cat.includes('mutual') || cat.includes('sip') || cat.includes('fund');
 
-      // Units
+      if (isMutualFund) {
+        const tickerClean = String(h.ticker || '').trim();
+        const codeClean = String(h.schemeCode || h.amfiCode || '').trim();
+
+        // 1. Direct 5-7 digit AMFI scheme code (fastest & 100% precise)
+        if (/^\d{5,7}$/.test(codeClean)) {
+          quote = await fetchMutualFundNav(codeClean);
+        } else if (/^\d{5,7}$/.test(tickerClean)) {
+          quote = await fetchMutualFundNav(tickerClean);
+        } else {
+          // 2. Try official name query first (name has full scheme title)
+          try {
+            quote = await fetchMutualFundNav(h.name);
+          } catch (nameErr) {
+            // 3. Fallback to ticker if name lookup failed
+            if (tickerClean && tickerClean.toLowerCase() !== (h.name || '').toLowerCase()) {
+              quote = await fetchMutualFundNav(tickerClean);
+            } else {
+              throw nameErr;
+            }
+          }
+        }
+      } else {
+        quote = await fetchUniversalQuote(h.ticker || h.name, h.category);
+      }
+
+      const livePrice = quote.price || quote.nav;
+      const liveNav = quote.nav || livePrice;
+      const quoteCurrency = quote.currency || h.nativeCurrency || baseCurrency;
+
+      // Units calculation
       const units = Number(h.units || h.quantity);
       let newNativeValue = h.currentValue;
 
@@ -326,20 +397,25 @@ export async function syncUniversalHoldingsBatch(holdings, fundBaseCurrency = 'I
         newNativeValue = Math.round(units * livePrice * 100) / 100;
       } else if (h.lastPrice && h.lastPrice > 0) {
         newNativeValue = Math.round((h.currentValue * (livePrice / h.lastPrice)) * 100) / 100;
+      } else if (h.lastNav && h.lastNav > 0) {
+        newNativeValue = Math.round((h.currentValue * (liveNav / h.lastNav)) * 100) / 100;
       }
 
       // Convert to Fund Base Currency if holding native currency differs
-      const newBaseValue = convertCurrency(newNativeValue, quoteCurrency, fundBaseCurrency, fxRates);
+      const newBaseValue = convertCurrency(newNativeValue, quoteCurrency, baseCurrency, fxRates);
 
       results.push({
         holdingId: h.id,
         name: h.name,
         ticker: h.ticker,
+        schemeCode: quote.schemeCode || (isMutualFund && /^\d{5,7}$/.test(h.ticker) ? h.ticker : undefined),
         oldValue: h.currentValue,
         newValue: newBaseValue,
         nativeValue: newNativeValue,
         nativeCurrency: quoteCurrency,
         livePrice,
+        liveNav,
+        navDate: quote.date,
         priceDate: quote.date || new Date().toISOString().split('T')[0],
         success: true,
         source: quote.source,

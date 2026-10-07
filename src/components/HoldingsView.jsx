@@ -272,7 +272,7 @@ export default function HoldingsView({
     setBatchSummary(null);
 
     try {
-      const syncResult = await syncMutualFundHoldingsBatch(holdings, (p) => {
+      const syncResult = await syncMutualFundHoldingsBatch(holdings, currency || 'INR', (p) => {
         setBatchProgress({ current: p.currentIndex, total: p.total, name: p.currentHolding });
       });
 
@@ -284,7 +284,8 @@ export default function HoldingsView({
             await onSaveHolding({
               ...target,
               currentValue: res.newValue,
-              lastNav: res.liveNav,
+              lastNav: res.liveNav || res.livePrice,
+              schemeCode: res.schemeCode || target.schemeCode || target.ticker,
             });
           }
         }
@@ -1116,8 +1117,12 @@ export default function HoldingsView({
                                   <td className="font-medium">{r.ticker || r.name}</td>
                                   <td className="mono text-muted">{formatCurrency(r.oldValue, currency, { decimals: 0 })}</td>
                                   <td className="mono font-semibold">{formatCurrency(r.newValue, currency, { decimals: 0 })}</td>
-                                  <td className="mono text-primary font-semibold">{r.liveNav ? formatCurrency(r.liveNav, currency, { decimals: 4 }) : '—'}</td>
-                                  <td className="text-muted text-xs mono">{r.navDate || (r.success ? 'Today' : r.error)}</td>
+                                  <td className="mono text-primary font-semibold">
+                                    {r.liveNav ? formatCurrency(r.liveNav, currency, { decimals: 4 }) : (r.livePrice ? formatCurrency(r.livePrice, currency, { decimals: 2 }) : '—')}
+                                  </td>
+                                  <td className={`text-xs mono ${r.success ? 'text-muted' : 'text-loss'}`} title={r.error || ''}>
+                                    {r.navDate || (r.success ? 'Today' : (r.error ? `Failed: ${r.error}` : 'Failed'))}
+                                  </td>
                                 </tr>
                               );
                             })}
