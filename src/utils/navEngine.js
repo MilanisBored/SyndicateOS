@@ -1165,6 +1165,28 @@ export function calculateInstitutionalFeeWaterfalls(
       };
     });
 
+  // Pre-index members to determine GP/Manager fee exemption status
+  const memberObjMap = new Map();
+  if (Array.isArray(members)) {
+    members.forEach(m => {
+      if (m.id) memberObjMap.set(String(m.id).toLowerCase(), m);
+      if (m.name) memberObjMap.set(m.name.toLowerCase().trim(), m);
+    });
+  }
+
+  function isMemberFeeExempt(memberId, memberName) {
+    let target = null;
+    if (memberId && memberObjMap.has(String(memberId).toLowerCase())) {
+      target = memberObjMap.get(String(memberId).toLowerCase());
+    } else if (memberName && memberObjMap.has(String(memberName).toLowerCase().trim())) {
+      target = memberObjMap.get(String(memberName).toLowerCase().trim());
+    }
+    if (!target) return false;
+    if (target.relationship === 'self') return true;
+    const roleLower = String(target.role || '').toLowerCase();
+    return roleLower.includes('manager') || roleLower.includes('owner') || roleLower.includes('lead');
+  }
+
   let mgmtFeeAccrued = 0;
   let perfFeeAccrued = 0;
   const transactionLots = [];
@@ -1174,9 +1196,10 @@ export function calculateInstitutionalFeeWaterfalls(
       const daysActive = lot.daysActive || Math.max(1, Math.round((nowMs - new Date(lot.date || Date.now()).getTime()) / (1000 * 60 * 60 * 24)));
       const lotUnits = Number(lot.units) || 0;
       const lotCurrentVal = lotUnits * currentNav;
+      const isExempt = isMemberFeeExempt(lot.memberId, lot.memberName);
 
-      // 1. Management Fee Accrual (Daily linear accrual: Valuation * rate * days / 365)
-      const lotMgmtFee = lotCurrentVal * (mgmtFeePct / 100) * (daysActive / 365);
+      // 1. Management Fee Accrual (GP capital is 100% Fee-Exempt; only outside LP capital accrues fee)
+      const lotMgmtFee = isExempt ? 0 : lotCurrentVal * (mgmtFeePct / 100) * (daysActive / 365);
       mgmtFeeAccrued += lotMgmtFee;
 
       // 2. Hurdle Floor & High-Water Mark Benchmark for this Lot
@@ -1184,9 +1207,9 @@ export function calculateInstitutionalFeeWaterfalls(
       const lotHurdleNav = lotDepositNav * (1 + (hurdleRatePct / 100) * (daysActive / 365));
       const lotHwmFloor = Math.max(hwm, lotHurdleNav);
 
-      // 3. Performance Fee Accrual on Alpha above Hurdle & HWM
+      // 3. Performance Fee Accrual on Alpha above Hurdle & HWM (Exempt for Manager)
       let lotPerfFee = 0;
-      if (currentNav > lotHwmFloor && perfFeePct > 0 && lotUnits > 0) {
+      if (!isExempt && currentNav > lotHwmFloor && perfFeePct > 0 && lotUnits > 0) {
         const excessAlphaPerUnit = currentNav - lotHwmFloor;
         lotPerfFee = (excessAlphaPerUnit * lotUnits) * (perfFeePct / 100);
         perfFeeAccrued += lotPerfFee;
@@ -1208,6 +1231,8 @@ export function calculateInstitutionalFeeWaterfalls(
         perfFeeAccrued: Math.round(lotPerfFee * 100) / 100,
         totalFeesAccrued: Math.round((lotMgmtFee + lotPerfFee) * 100) / 100,
         isHurdleCleared: currentNav > lotHwmFloor,
+        isFeeExempt: isExempt,
+        statusLabel: isExempt ? 'EXEMPT (GP CAPITAL)' : (currentNav > lotHwmFloor ? 'ACCRUED (+ALPHA)' : `ACCRUING (${daysActive}d)`),
       });
     });
   } else {
@@ -1220,6 +1245,38 @@ export function calculateInstitutionalFeeWaterfalls(
     if (currentNav > hurdleFloor && perfFeePct > 0 && units > 0) {
       perfFeeAccrued = (currentNav - hurdleFloor) * units * (perfFeePct / 100);
     }
+  }
+
+  // Aggregate fee waterfall per partner (Consolidated Investor Fee Summary)
+  const partnerSummaries = [];
+  if (Array.isArray(members) && members.length > 0) {
+    members.forEach(m => {
+      const isExempt = isMemberFeeExempt(m.id, m.name);
+      const memberLots = transactionLots.filter(l => 
+        (l.memberId && m.id && String(l.memberId).toLowerCase() === String(m.id).toLowerCase()) ||
+        (l.memberName && m.name && String(l.memberName).toLowerCase().trim() === String(m.name).toLowerCase().trim())
+      );
+      const memberUnits = Number(m.units) || 0;
+      const memberValuation = Number(m.currentValue) || (memberUnits * currentNav);
+      const memberMgmtFee = memberLots.reduce((acc, l) => acc + (l.mgmtFeeAccrued || 0), 0);
+      const memberPerfFee = memberLots.reduce((acc, l) => acc + (l.perfFeeAccrued || 0), 0);
+      const memberTotalFees = memberMgmtFee + memberPerfFee;
+      const netValuation = Math.max(0, memberValuation - memberTotalFees);
+
+      partnerSummaries.push({
+        memberId: m.id,
+        memberName: m.name,
+        role: m.role || (isExempt ? 'Fund Manager' : 'Partner / LP'),
+        isFeeExempt: isExempt,
+        units: memberUnits,
+        currentValue: memberValuation,
+        mgmtFeeAccrued: Math.round(memberMgmtFee * 100) / 100,
+        perfFeeAccrued: Math.round(memberPerfFee * 100) / 100,
+        totalFeesAccrued: Math.round(memberTotalFees * 100) / 100,
+        netValuation: Math.round(netValuation * 100) / 100,
+        lotCount: memberLots.length,
+      });
+    });
   }
 
   const totalFeesAccrued = mgmtFeeAccrued + perfFeeAccrued;
@@ -1245,6 +1302,7 @@ export function calculateInstitutionalFeeWaterfalls(
     netFundAUM: Math.round(netFundAUM * 100) / 100,
     feeDragBps,
     transactionLots,
+    partnerSummaries,
   };
 }
 

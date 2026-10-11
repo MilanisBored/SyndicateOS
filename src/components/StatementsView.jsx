@@ -17,6 +17,7 @@ export default function StatementsView({
   const [sortDir, setSortDir] = useState('desc');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [showLotAudit, setShowLotAudit] = useState(false);
 
   const isInvestor = perspective === 'investor' || fundInfo?.userRole === 'investor';
   const userEmail = (currentUser?.email || '').toLowerCase().trim();
@@ -613,17 +614,17 @@ export default function StatementsView({
             })()}
           </div>
 
-          {/* Transaction Lot Accrual Breakdown (Actual/365 Day Count Convention) */}
+          {/* Consolidated Partner / LP Fee Ledger (1 Row Per Investor) */}
           <div className="card p-4">
             <div className="section-head mb-3">
               <div>
-                <span className="section-title">Transaction Lot Accrual Accounting (Actual/365)</span>
+                <span className="section-title">Investor Fee Accrual Ledger</span>
                 <span className="text-xs text-muted block">
-                  Granular time-weighted accrual on individual capital tranches deposited into the syndicate pool.
+                  Consolidated time-weighted fee deductions across individual investor accounts. GP capital is 100% fee-exempt.
                 </span>
               </div>
               <span className="badge badge-neutral mono" style={{ fontSize: 9 }}>
-                {fundMetrics.institutionalFeeWaterfalls?.transactionLots?.length || 0} TRANCHES ACROSS {memberList.length} PARTNERS • ACTUAL/365
+                {memberList.length} INVESTORS • ACTUAL/365
               </span>
             </div>
 
@@ -631,49 +632,51 @@ export default function StatementsView({
               <table className="dense-table text-xs">
                 <thead>
                   <tr>
-                    <th>Tranche</th>
-                    <th>Deposit Date</th>
                     <th>Partner / LP</th>
-                    <th className="text-right">Deposited</th>
+                    <th>Capital Tier</th>
                     <th className="text-right">Units</th>
-                    <th className="text-right">Days Active</th>
-                    <th className="text-right">Lot Valuation</th>
+                    <th className="text-right">Gross Valuation</th>
                     <th className="text-right">Accrued Mgmt Fee ({fundMetrics.institutionalFeeWaterfalls?.mgmtFeePct || 2}%)</th>
-                    <th className="text-right">Hurdle Benchmark</th>
                     <th className="text-right">Accrued Carry ({fundMetrics.institutionalFeeWaterfalls?.perfFeePct || 20}%)</th>
-                    <th className="text-right">Accrual Status</th>
+                    <th className="text-right">Total Fee Accrual</th>
+                    <th className="text-right">Net Distributable Value</th>
+                    <th className="text-right">Fee Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(!fundMetrics.institutionalFeeWaterfalls?.transactionLots || fundMetrics.institutionalFeeWaterfalls.transactionLots.length === 0) ? (
+                  {(!fundMetrics.institutionalFeeWaterfalls?.partnerSummaries || fundMetrics.institutionalFeeWaterfalls.partnerSummaries.length === 0) ? (
                     <tr>
-                      <td colSpan="11" className="text-center text-muted py-6">
-                        No verified deposit transactions recorded. Capital pool is accruing at fund-level baseline.
+                      <td colSpan="9" className="text-center text-muted py-6">
+                        No active investor records found.
                       </td>
                     </tr>
                   ) : (
-                    fundMetrics.institutionalFeeWaterfalls.transactionLots.map((lot, idx) => (
-                      <tr key={lot.id}>
-                        <td className="mono text-muted text-xxs font-semibold">LOT #{idx + 1}</td>
-                        <td className="mono font-medium text-primary">{lot.date}</td>
+                    fundMetrics.institutionalFeeWaterfalls.partnerSummaries.map((p) => (
+                      <tr key={p.memberId || p.memberName}>
                         <td>
-                          <span className="font-semibold text-primary block">{lot.memberName}</span>
-                          <span className="text-xxs text-muted mono">Tranche Injection</span>
+                          <span className="font-semibold text-primary block">{p.memberName}</span>
+                          <span className="text-xxs text-muted mono">{p.lotCount} Deposit Tranche{p.lotCount === 1 ? '' : 's'}</span>
                         </td>
-                        <td className="mono text-right font-medium">{formatCurrency(lot.amount, currency, { decimals: 0 })}</td>
-                        <td className="mono text-right">{formatNumber(lot.units, 4)}</td>
-                        <td className="mono text-right font-semibold text-primary">{lot.daysActive} days</td>
-                        <td className="mono text-right font-medium">{formatCurrency(lot.currentValue, currency, { decimals: 0 })}</td>
-                        <td className="mono text-right text-loss">
-                          -{formatCurrency(lot.mgmtFeeAccrued, currency, { decimals: 2 })}
+                        <td className="text-muted text-xxs uppercase">
+                          {p.isFeeExempt ? 'GP (Lead Manager)' : 'Limited Partner (LP)'}
                         </td>
-                        <td className="mono text-right text-muted">{formatCurrency(lot.hurdleFloor, currency, { decimals: 2 })}</td>
-                        <td className={`mono text-right ${lot.perfFeeAccrued > 0 ? 'text-loss font-semibold' : 'text-muted'}`}>
-                          {lot.perfFeeAccrued > 0 ? `-${formatCurrency(lot.perfFeeAccrued, currency, { decimals: 2 })}` : '₹0.00'}
+                        <td className="mono text-right">{formatNumber(p.units, 4)}</td>
+                        <td className="mono text-right font-medium">{formatCurrency(p.currentValue, currency, { decimals: 0 })}</td>
+                        <td className={`mono text-right ${p.mgmtFeeAccrued > 0 ? 'text-loss' : 'text-muted'}`}>
+                          {p.mgmtFeeAccrued > 0 ? `-${formatCurrency(p.mgmtFeeAccrued, currency, { decimals: 2 })}` : '₹0.00'}
+                        </td>
+                        <td className={`mono text-right ${p.perfFeeAccrued > 0 ? 'text-loss font-semibold' : 'text-muted'}`}>
+                          {p.perfFeeAccrued > 0 ? `-${formatCurrency(p.perfFeeAccrued, currency, { decimals: 2 })}` : '₹0.00'}
+                        </td>
+                        <td className={`mono text-right font-semibold ${p.totalFeesAccrued > 0 ? 'text-loss' : 'text-muted'}`}>
+                          {p.totalFeesAccrued > 0 ? `-${formatCurrency(p.totalFeesAccrued, currency, { decimals: 2 })}` : '₹0.00'}
+                        </td>
+                        <td className="mono text-right font-bold text-profit">
+                          {formatCurrency(p.netValuation, currency, { decimals: 0 })}
                         </td>
                         <td className="mono text-right">
-                          <span className={`badge ${lot.isHurdleCleared ? 'badge-profit' : 'badge-neutral'} mono`} style={{ fontSize: 9 }}>
-                            {lot.isHurdleCleared ? `ACCRUED (+ALPHA)` : `ACCRUING (${lot.daysActive}d)`}
+                          <span className={`badge ${p.isFeeExempt ? 'badge-profit' : (p.totalFeesAccrued > 0 ? 'badge-neutral' : 'badge-neutral')} mono`} style={{ fontSize: 9 }}>
+                            {p.isFeeExempt ? '[EXEMPT: GP CAPITAL]' : (p.totalFeesAccrued > 0 ? '[ACCRUING]' : '[BASELINE]')}
                           </span>
                         </td>
                       </tr>
@@ -682,6 +685,93 @@ export default function StatementsView({
                 </tbody>
               </table>
             </div>
+          </div>
+
+          {/* Granular Transaction Lot Breakdown (Collapsible Audit Trail) */}
+          <div className="card p-4">
+            <div className="section-head mb-3">
+              <div>
+                <span className="section-title">Granular Tranche Audit Trail (Actual/365)</span>
+                <span className="text-xs text-muted block">
+                  Detailed time-weighted inspection of individual capital deposits into the syndicate pool.
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="badge badge-neutral mono" style={{ fontSize: 9 }}>
+                  {fundMetrics.institutionalFeeWaterfalls?.transactionLots?.length || 0} DEPOSIT TRANCHES
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ fontSize: 10, padding: '3px 8px' }}
+                  onClick={() => setShowLotAudit(!showLotAudit)}
+                >
+                  {showLotAudit ? 'Hide Tranche Audit' : 'Inspect Tranche Lots'}
+                </button>
+              </div>
+            </div>
+
+            {showLotAudit ? (
+              <div className="table-responsive">
+                <table className="dense-table text-xs">
+                  <thead>
+                    <tr>
+                      <th>Tranche</th>
+                      <th>Deposit Date</th>
+                      <th>Partner / LP</th>
+                      <th className="text-right">Deposited</th>
+                      <th className="text-right">Units</th>
+                      <th className="text-right">Days Active</th>
+                      <th className="text-right">Lot Valuation</th>
+                      <th className="text-right">Accrued Mgmt Fee ({fundMetrics.institutionalFeeWaterfalls?.mgmtFeePct || 2}%)</th>
+                      <th className="text-right">Hurdle Benchmark</th>
+                      <th className="text-right">Accrued Carry ({fundMetrics.institutionalFeeWaterfalls?.perfFeePct || 20}%)</th>
+                      <th className="text-right">Accrual Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(!fundMetrics.institutionalFeeWaterfalls?.transactionLots || fundMetrics.institutionalFeeWaterfalls.transactionLots.length === 0) ? (
+                      <tr>
+                        <td colSpan="11" className="text-center text-muted py-6">
+                          No verified deposit transactions recorded. Capital pool is accruing at fund-level baseline.
+                        </td>
+                      </tr>
+                    ) : (
+                      fundMetrics.institutionalFeeWaterfalls.transactionLots.map((lot, idx) => (
+                        <tr key={lot.id}>
+                          <td className="mono text-muted text-xxs font-semibold">LOT #{idx + 1}</td>
+                          <td className="mono font-medium text-primary">{lot.date}</td>
+                          <td>
+                            <span className="font-semibold text-primary block">{lot.memberName}</span>
+                            <span className="text-xxs text-muted mono">Tranche Injection</span>
+                          </td>
+                          <td className="mono text-right font-medium">{formatCurrency(lot.amount, currency, { decimals: 0 })}</td>
+                          <td className="mono text-right">{formatNumber(lot.units, 4)}</td>
+                          <td className="mono text-right font-semibold text-primary">{lot.daysActive} days</td>
+                          <td className="mono text-right font-medium">{formatCurrency(lot.currentValue, currency, { decimals: 0 })}</td>
+                          <td className={`mono text-right ${lot.mgmtFeeAccrued > 0 ? 'text-loss' : 'text-muted'}`}>
+                            {lot.mgmtFeeAccrued > 0 ? `-${formatCurrency(lot.mgmtFeeAccrued, currency, { decimals: 2 })}` : '₹0.00'}
+                          </td>
+                          <td className="mono text-right text-muted">{formatCurrency(lot.hurdleFloor, currency, { decimals: 2 })}</td>
+                          <td className={`mono text-right ${lot.perfFeeAccrued > 0 ? 'text-loss font-semibold' : 'text-muted'}`}>
+                            {lot.perfFeeAccrued > 0 ? `-${formatCurrency(lot.perfFeeAccrued, currency, { decimals: 2 })}` : '₹0.00'}
+                          </td>
+                          <td className="mono text-right">
+                            <span className={`badge ${lot.isFeeExempt ? 'badge-profit' : (lot.isHurdleCleared ? 'badge-profit' : 'badge-neutral')} mono`} style={{ fontSize: 9 }}>
+                              {lot.statusLabel || (lot.isFeeExempt ? 'EXEMPT (GP)' : 'ACCRUING')}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-xs text-muted mono p-3" style={{ background: 'var(--bg-subtle)', borderRadius: '4px', border: '1px solid var(--border-subtle)' }}>
+                Granular tranche audit trail collapsed for high-volume transactions ({fundMetrics.institutionalFeeWaterfalls?.transactionLots?.length || 0} deposit tranches active). Click "Inspect Tranche Lots" above to review individual time-weighted deposit entries.
+              </div>
+            )}
           </div>
 
           {/* LP Fee Audit Table */}
