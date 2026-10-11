@@ -20,7 +20,9 @@ export default function HoldingsView({
   currency, 
   fundInfo,
   perspective = 'manager',
-  onSyncValuationToNAV 
+  onSyncValuationToNAV,
+  activeSubTab: externalSubTab,
+  onSubTabChange
 }) {
   const isInvestor = perspective === 'investor' || fundInfo?.userRole === 'investor';
   const isPrivateMandate = isInvestor && (fundInfo?.portfolioVisibility === 'private' || !fundInfo?.portfolioVisibility);
@@ -49,7 +51,12 @@ export default function HoldingsView({
   const [singleQuoteStatus, setSingleQuoteStatus] = useState('');
 
   // Institutional Sub-Categorizations: 'positions' | 'exposures' | 'attribution' | 'taxlots' | 'treasury'
-  const [activeSubTab, setActiveSubTab] = useState('positions');
+  const [internalSubTab, setInternalSubTab] = useState('positions');
+  const activeSubTab = externalSubTab || internalSubTab;
+  const setActiveSubTab = (tab) => {
+    setInternalSubTab(tab);
+    if (onSubTabChange) onSubTabChange(tab);
+  };
   const [taxLotStrategy, setTaxLotStrategy] = useState('FIFO'); // 'FIFO' | 'LIFO' | 'HIFO' | 'AVG'
   const [selectedLotAssetId, setSelectedLotAssetId] = useState('all');
 

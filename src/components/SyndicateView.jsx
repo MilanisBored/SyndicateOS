@@ -20,8 +20,17 @@ export default function SyndicateView({
   onOpenMemberModal, 
   onDeleteMember,
   onConfirmTransaction,
-  onSelectMember 
+  onSelectMember,
+  activeSubTab: externalSubTab,
+  onSubTabChange
 }) {
+  const [internalSection, setInternalSection] = useState('all');
+  const activeSection = externalSubTab || internalSection;
+  const setActiveSection = (s) => {
+    setInternalSection(s);
+    if (onSubTabChange) onSubTabChange(s);
+  };
+
   const [filterMember, setFilterMember] = useState('all');
   const [filterType, setFilterType] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -333,8 +342,42 @@ export default function SyndicateView({
         </div>
       )}
 
+      {/* Sub-Category Navigation Bar */}
+      <div className="flex items-center justify-between border-b pb-2 mb-4 gap-2 flex-wrap" style={{ borderColor: 'var(--border-subtle)' }}>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            className={`btn btn-sm mono ${activeSection === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ fontSize: 11, padding: '4px 10px' }}
+            onClick={() => setActiveSection('all')}
+          >
+            All Capital &amp; Activity
+          </button>
+          <button
+            type="button"
+            className={`btn btn-sm mono ${activeSection === 'captable' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ fontSize: 11, padding: '4px 10px' }}
+            onClick={() => setActiveSection('captable')}
+          >
+            Cap Table &amp; Partners ({fundMetrics?.members?.length || 0})
+          </button>
+          <button
+            type="button"
+            className={`btn btn-sm mono ${activeSection === 'ledger' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ fontSize: 11, padding: '4px 10px' }}
+            onClick={() => setActiveSection('ledger')}
+          >
+            Syndicate Ledger ({filteredTx.length})
+          </button>
+        </div>
+        <div className="text-xs text-muted mono">
+          <span>Total Pool Equity: <strong className="text-primary">{formatCurrency(fundMetrics.totalFundAUM || fundMetrics.poolEquity || 0, currency, { decimals: 0 })}</strong></span>
+        </div>
+      </div>
+
       {/* Institutional Cap Table Container */}
-      <div className="card p-4 mb-4">
+      {(activeSection === 'all' || activeSection === 'captable') && (
+        <div className="card p-4 mb-4">
         {/* Controls Toolbar: Search, Role Filter, Quick Selector, View Mode */}
         <div className="flex justify-between items-center mb-3 gap-2 flex-wrap pb-3" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
           <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
@@ -774,9 +817,11 @@ export default function SyndicateView({
           </div>
         )}
       </div>
+      )}
 
       {/* Compact Ledger Section */}
-      <div className="card p-4 mt-4">
+      {(activeSection === 'all' || activeSection === 'ledger') && (
+        <div className="card p-4 mt-4">
         <div className="section-head mb-3">
           <div className="flex items-center gap-3">
             <span className="section-title">Transactions Ledger ({filteredTx.length})</span>
@@ -999,6 +1044,7 @@ export default function SyndicateView({
           </div>
         )}
       </div>
+      )}
 
       {/* Member Removal Gatekeeper Modal */}
       {memberForDeletion && (

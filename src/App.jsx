@@ -30,7 +30,8 @@ import {
   onAuthChange
 } from './lib/supabaseClient';
 
-import Navbar from './components/Navbar';
+import Sidebar from './components/Sidebar';
+import TopHeader from './components/TopHeader';
 import DashboardView from './components/DashboardView';
 import AuthGateway from './components/AuthGateway';
 import LandingPage from './components/LandingPage';
@@ -284,6 +285,8 @@ export default function App() {
   }, [appState, isConnectedToCloud]);
 
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeSubTab, setActiveSubTab] = useState('cockpit');
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [currency, setCurrency] = useState(appState.fundInfo?.currency || 'INR');
 
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
@@ -755,132 +758,163 @@ export default function App() {
   return (
     <ErrorBoundary>
       <div className="app-wrapper">
-        <Navbar
+        {/* Mobile Sidebar Backdrop */}
+        {isMobileSidebarOpen && (
+          <div 
+            className="sidebar-backdrop" 
+            onClick={() => setIsMobileSidebarOpen(false)} 
+          />
+        )}
+
+        {/* Left-Side Institutional Navigation Sidebar */}
+        <Sidebar
           activeTab={activeTab}
           setActiveTab={setActiveTab}
+          activeSubTab={activeSubTab}
+          setActiveSubTab={setActiveSubTab}
           fundInfo={appState.fundInfo}
           currency={currency}
           setCurrency={setCurrency}
           theme={theme}
           toggleTheme={toggleTheme}
-          onOpenTransactionModal={() => handleOpenTransactionModal()}
-          onOpenStatementModal={() => {
-            const myMem = fundMetrics.members.find(m => m.isMe || (session?.user?.email && m.email?.toLowerCase() === session?.user?.email?.toLowerCase()));
-            if (myMem) setSelectedMemberForStatement(myMem);
-            else setActiveTab('statements');
-          }}
-          onOpenActionCenter={() => setIsActionCenterOpen(true)}
-          pendingActionCount={pendingActionsCount}
-          disputedCount={disputedActionsCount}
+          onCreateFund={() => setIsCreateFundModalOpen(true)}
           perspective={effectivePerspective}
           onTogglePerspective={togglePerspective}
-          onCreateFund={() => setIsCreateFundModalOpen(true)}
-          isCloudConnected={isConnectedToCloud}
-          isLoadingCloud={isLoadingCloud}
-          onRefreshCloud={refreshFromSupabase}
           currentUser={session?.user}
           onSignOut={handleSignOut}
           isGuest={false}
           availableFunds={availableFunds}
           onSwitchFund={(fId) => refreshFromSupabase(fId)}
-          onOpenPriceSync={() => setIsPriceSyncModalOpen(true)}
+          isMobileOpen={isMobileSidebarOpen}
+          onCloseMobile={() => setIsMobileSidebarOpen(false)}
         />
 
-      {cloudError && (
-        <div 
-          className="p-3 bg-loss-subtle text-loss text-xs flex justify-between items-center"
-          style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--loss-subtle)' }}
-        >
-          <span>
-            <strong>Database Notice:</strong> {cloudError}
-          </span>
-          <button 
-            type="button" 
-            className="btn btn-secondary btn-sm"
-            onClick={() => setCloudError('')}
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
+        {/* Right Main Panel */}
+        <div className="app-main">
+          <TopHeader
+            activeTab={activeTab}
+            activeSubTab={activeSubTab}
+            onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
+            isCloudConnected={isConnectedToCloud}
+            isLoadingCloud={isLoadingCloud}
+            onRefreshCloud={refreshFromSupabase}
+            onOpenTransactionModal={() => handleOpenTransactionModal()}
+            onOpenStatementModal={() => {
+              const myMem = fundMetrics.members.find(m => m.isMe || (session?.user?.email && m.email?.toLowerCase() === session?.user?.email?.toLowerCase()));
+              if (myMem) setSelectedMemberForStatement(myMem);
+              else {
+                setActiveTab('statements');
+                setActiveSubTab('statements');
+              }
+            }}
+            onOpenActionCenter={() => setIsActionCenterOpen(true)}
+            pendingActionCount={pendingActionsCount}
+            disputedCount={disputedActionsCount}
+            perspective={effectivePerspective}
+            onOpenPriceSync={() => setIsPriceSyncModalOpen(true)}
+          />
 
-      <main className="main-content">
-        <Suspense fallback={<div className="loading-state mono p-4 text-center text-xs text-muted">Loading module...</div>}>
-          {activeTab === 'dashboard' && (
-            <DashboardView
-              fundMetrics={fundMetrics}
-              fundInfo={appState.fundInfo}
-              currency={currency}
-              transactions={appState.transactions}
-              members={appState.members}
-              holdings={appState.holdings}
-              personalFinances={appState.personalFinances}
-              currentUser={session?.user}
-              perspective={effectivePerspective}
-              onOpenTransactionModal={handleOpenTransactionModal}
-              onConfirmTransaction={handleConfirmTransaction}
-              onSelectMember={(m) => setSelectedMemberForStatement(m)}
-              onOpenActionCenter={() => setIsActionCenterOpen(true)}
-              onOpenPriceSync={() => setIsPriceSyncModalOpen(true)}
-            />
+          {cloudError && (
+            <div 
+              className="p-3 bg-loss-subtle text-loss text-xs flex justify-between items-center"
+              style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--loss-subtle)' }}
+            >
+              <span>
+                <strong>Database Notice:</strong> {cloudError}
+              </span>
+              <button 
+                type="button" 
+                className="btn btn-secondary btn-sm"
+                onClick={() => setCloudError('')}
+              >
+                Dismiss
+              </button>
+            </div>
           )}
 
-          {activeTab === 'syndicate' && (
-            <SyndicateView
-              fundMetrics={fundMetrics}
-              fundInfo={appState.fundInfo}
-              currency={currency}
-              transactions={appState.transactions}
-              holdings={appState.holdings}
-              currentUser={session?.user}
-              perspective={effectivePerspective}
-              onOpenTransactionModal={handleOpenTransactionModal}
-              onOpenMemberModal={() => setIsMemberModalOpen(true)}
-              onDeleteMember={handleDeleteMember}
-              onConfirmTransaction={handleConfirmTransaction}
-              onSelectMember={(m) => setSelectedMemberForStatement(m)}
-            />
-          )}
+          <main className="main-content">
+            <Suspense fallback={<div className="loading-state mono p-4 text-center text-xs text-muted">Loading module...</div>}>
+              {activeTab === 'dashboard' && (
+                <DashboardView
+                  fundMetrics={fundMetrics}
+                  fundInfo={appState.fundInfo}
+                  currency={currency}
+                  transactions={appState.transactions}
+                  members={appState.members}
+                  holdings={appState.holdings}
+                  personalFinances={appState.personalFinances}
+                  currentUser={session?.user}
+                  perspective={effectivePerspective}
+                  onOpenTransactionModal={handleOpenTransactionModal}
+                  onConfirmTransaction={handleConfirmTransaction}
+                  onSelectMember={(m) => setSelectedMemberForStatement(m)}
+                  onOpenActionCenter={() => setIsActionCenterOpen(true)}
+                  onOpenPriceSync={() => setIsPriceSyncModalOpen(true)}
+                />
+              )}
 
-          {activeTab === 'holdings' && (
-            <HoldingsView
-              holdings={appState.holdings}
-              onSaveHolding={handleSaveHolding}
-              onDeleteHolding={handleDeleteHolding}
-              onExecuteTradeTrim={handleExecuteTradeTrim}
-              onAddTransaction={handleAddTransaction}
-              fundMetrics={fundMetrics}
-              currency={currency}
-              fundInfo={appState.fundInfo}
-              perspective={effectivePerspective}
-              onSyncValuationToNAV={handleSyncHoldingsToNAV}
-            />
-          )}
+              {activeTab === 'syndicate' && (
+                <SyndicateView
+                  fundMetrics={fundMetrics}
+                  fundInfo={appState.fundInfo}
+                  currency={currency}
+                  transactions={appState.transactions}
+                  holdings={appState.holdings}
+                  currentUser={session?.user}
+                  perspective={effectivePerspective}
+                  onOpenTransactionModal={handleOpenTransactionModal}
+                  onOpenMemberModal={() => setIsMemberModalOpen(true)}
+                  onDeleteMember={handleDeleteMember}
+                  onConfirmTransaction={handleConfirmTransaction}
+                  onSelectMember={(m) => setSelectedMemberForStatement(m)}
+                  activeSubTab={activeSubTab}
+                  onSubTabChange={(sub) => setActiveSubTab(sub)}
+                />
+              )}
 
-          {activeTab === 'personal' && (
-            <PersonalFinanceView
-              personalFinances={appState.personalFinances}
-              setPersonalFinances={setPersonalFinances}
-              fundMetrics={fundMetrics}
-              currency={currency}
-              onAddIncome={handleAddIncome}
-              onDeleteIncome={handleDeleteIncome}
-              onAddSoloAsset={handleAddSoloAsset}
-              onDeleteSoloAsset={handleDeleteSoloAsset}
-            />
-          )}
+              {activeTab === 'holdings' && (
+                <HoldingsView
+                  holdings={appState.holdings}
+                  onSaveHolding={handleSaveHolding}
+                  onDeleteHolding={handleDeleteHolding}
+                  onExecuteTradeTrim={handleExecuteTradeTrim}
+                  onAddTransaction={handleAddTransaction}
+                  fundMetrics={fundMetrics}
+                  currency={currency}
+                  fundInfo={appState.fundInfo}
+                  perspective={effectivePerspective}
+                  onSyncValuationToNAV={handleSyncHoldingsToNAV}
+                  activeSubTab={activeSubTab}
+                  onSubTabChange={(sub) => setActiveSubTab(sub)}
+                />
+              )}
 
-          {activeTab === 'statements' && (
-            <StatementsView
-              fundMetrics={fundMetrics}
-              fundInfo={appState.fundInfo}
-              currency={currency}
-              holdings={appState.holdings}
-              currentUser={session?.user}
-              perspective={effectivePerspective}
-              onSelectMember={(m) => setSelectedMemberForStatement(m)}
-            />
-          )}
+              {activeTab === 'personal' && (
+                <PersonalFinanceView
+                  personalFinances={appState.personalFinances}
+                  setPersonalFinances={setPersonalFinances}
+                  fundMetrics={fundMetrics}
+                  currency={currency}
+                  onAddIncome={handleAddIncome}
+                  onDeleteIncome={handleDeleteIncome}
+                  onAddSoloAsset={handleAddSoloAsset}
+                  onDeleteSoloAsset={handleDeleteSoloAsset}
+                />
+              )}
+
+              {activeTab === 'statements' && (
+                <StatementsView
+                  fundMetrics={fundMetrics}
+                  fundInfo={appState.fundInfo}
+                  currency={currency}
+                  holdings={appState.holdings}
+                  currentUser={session?.user}
+                  perspective={effectivePerspective}
+                  onSelectMember={(m) => setSelectedMemberForStatement(m)}
+                  activeSubTab={activeSubTab}
+                  onSubTabChange={(sub) => setActiveSubTab(sub)}
+                />
+              )}
 
           {activeTab === 'settings' && (
             <SettingsView
@@ -897,6 +931,7 @@ export default function App() {
           )}
         </Suspense>
       </main>
+      </div>
 
       {/* Lazy Modals with Suspense */}
       <Suspense fallback={null}>

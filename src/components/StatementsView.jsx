@@ -8,9 +8,16 @@ export default function StatementsView({
   holdings = [],
   currentUser,
   perspective = 'manager',
-  onSelectMember 
+  onSelectMember,
+  activeSubTab: externalSubTab,
+  onSubTabChange
 }) {
-  const [statementSubTab, setStatementSubTab] = useState('statements'); // 'statements' | 'factsheet' | 'fees'
+  const [internalSubTab, setInternalSubTab] = useState('fees'); // Default to fee waterfalls
+  const statementSubTab = externalSubTab || internalSubTab;
+  const setStatementSubTab = (tab) => {
+    setInternalSubTab(tab);
+    if (onSubTabChange) onSubTabChange(tab);
+  };
   const [copiedId, setCopiedId] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('ownershipPct');
