@@ -623,7 +623,7 @@ export default function StatementsView({
                 </span>
               </div>
               <span className="badge badge-neutral mono" style={{ fontSize: 9 }}>
-                DAY COUNT: ACTUAL/365
+                {fundMetrics.institutionalFeeWaterfalls?.transactionLots?.length || 0} TRANCHES ACROSS {memberList.length} PARTNERS • ACTUAL/365
               </span>
             </div>
 
@@ -631,8 +631,10 @@ export default function StatementsView({
               <table className="dense-table text-xs">
                 <thead>
                   <tr>
+                    <th>Tranche</th>
                     <th>Deposit Date</th>
                     <th>Partner / LP</th>
+                    <th className="text-right">Deposited</th>
                     <th className="text-right">Units</th>
                     <th className="text-right">Days Active</th>
                     <th className="text-right">Lot Valuation</th>
@@ -645,17 +647,20 @@ export default function StatementsView({
                 <tbody>
                   {(!fundMetrics.institutionalFeeWaterfalls?.transactionLots || fundMetrics.institutionalFeeWaterfalls.transactionLots.length === 0) ? (
                     <tr>
-                      <td colSpan="9" className="text-center text-muted py-6">
+                      <td colSpan="11" className="text-center text-muted py-6">
                         No verified deposit transactions recorded. Capital pool is accruing at fund-level baseline.
                       </td>
                     </tr>
                   ) : (
-                    fundMetrics.institutionalFeeWaterfalls.transactionLots.map((lot) => (
+                    fundMetrics.institutionalFeeWaterfalls.transactionLots.map((lot, idx) => (
                       <tr key={lot.id}>
+                        <td className="mono text-muted text-xxs font-semibold">LOT #{idx + 1}</td>
                         <td className="mono font-medium text-primary">{lot.date}</td>
                         <td>
-                          <span className="font-semibold text-primary">{lot.memberName}</span>
+                          <span className="font-semibold text-primary block">{lot.memberName}</span>
+                          <span className="text-xxs text-muted mono">Tranche Injection</span>
                         </td>
+                        <td className="mono text-right font-medium">{formatCurrency(lot.amount, currency, { decimals: 0 })}</td>
                         <td className="mono text-right">{formatNumber(lot.units, 4)}</td>
                         <td className="mono text-right font-semibold text-primary">{lot.daysActive} days</td>
                         <td className="mono text-right font-medium">{formatCurrency(lot.currentValue, currency, { decimals: 0 })}</td>
