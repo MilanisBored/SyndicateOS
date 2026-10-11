@@ -32,13 +32,24 @@ export default function TransactionModal({
   const selectedMember = members.find((m) => m.id === memberId) || members[0];
   const currentNav = fundMetrics.currentNav > 0 ? fundMetrics.currentNav : fundInfo.initialNav || 100.0;
 
+  // Accrued fee details for selected member
+  const memberFeeSummary = (fundMetrics.institutionalFeeWaterfalls?.partnerSummaries || []).find(
+    p => (p.memberId && selectedMember?.id && String(p.memberId).toLowerCase() === String(selectedMember.id).toLowerCase()) ||
+         (p.memberName && selectedMember?.name && String(p.memberName).toLowerCase().trim() === String(selectedMember.name).toLowerCase().trim())
+  );
+  const accruedMgmtFee = Number(memberFeeSummary?.mgmtFeeAccrued) || 0;
+  const accruedPerfFee = Number(memberFeeSummary?.perfFeeAccrued) || 0;
+  const totalAccruedFees = Number(memberFeeSummary?.totalFeesAccrued) || 0;
+  const grossEquity = Number(selectedMember?.currentValue) || 0;
+  const netDistributable = Math.max(0, grossEquity - totalAccruedFees);
+
   const numAmount = Number(amount) || 0;
   const unitsCalculated = currentNav > 0 ? numAmount / currentNav : 0;
 
   let validationError = '';
   if (type === 'withdrawal' && selectedMember) {
-    if (numAmount > selectedMember.currentValue) {
-      validationError = `Exceeds current equity of ${formatCurrency(selectedMember.currentValue, currency)}`;
+    if (numAmount > grossEquity) {
+      validationError = `Exceeds current gross equity of ${formatCurrency(grossEquity, currency)}`;
     }
   }
 
@@ -122,6 +133,56 @@ export default function TransactionModal({
                   </option>
                 ))}
               </select>
+            </div>
+          )}
+
+          {type === 'withdrawal' && selectedMember && (
+            <div className="card p-3 mb-3 text-xs mono" style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border-subtle)', borderRadius: '4px' }}>
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-muted">Gross Account Equity:</span>
+                <span className="font-semibold text-primary">{formatCurrency(grossEquity, currency)}</span>
+              </div>
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-muted">Accrued Mgmt Fee ({fundMetrics.institutionalFeeWaterfalls?.mgmtFeePct || 2}%):</span>
+                <span className={`font-semibold ${accruedMgmtFee > 0 ? 'text-loss' : 'text-muted'}`}>
+                  {accruedMgmtFee > 0 ? `-${formatCurrency(accruedMgmtFee, currency, { decimals: 2 })}` : (memberFeeSummary?.isFeeExempt ? '₹0.00 (GP Exempt)' : '₹0.00')}
+                </span>
+              </div>
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-muted">Accrued Carry ({fundMetrics.institutionalFeeWaterfalls?.perfFeePct || 20}%):</span>
+                <span className={`font-semibold ${accruedPerfFee > 0 ? 'text-loss' : 'text-muted'}`}>
+                  {accruedPerfFee > 0 ? `-${formatCurrency(accruedPerfFee, currency, { decimals: 2 })}` : '₹0.00'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center pt-2 mt-1" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                <span className="font-semibold text-primary">Net Exit Cash (After Fees):</span>
+                <span className="font-bold text-profit">{formatCurrency(netDistributable, currency)}</span>
+              </div>
+              
+              <div className="flex justify-end gap-2 mt-2 pt-1">
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ fontSize: 10, padding: '2px 8px' }}
+                  onClick={() => setAmount(String(Math.round(netDistributable * 100) / 100))}
+                >
+                  Set Net Distributable ({formatCurrency(netDistributable, currency, { decimals: 0 })})
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ fontSize: 10, padding: '2px 8px' }}
+                  onClick={() => setAmount(String(Math.round(grossEquity * 100) / 100))}
+                >
+                  Set Full Gross ({formatCurrency(grossEquity, currency, { decimals: 0 })})
+                </button>
+              </div>
+
+              {totalAccruedFees > 0 && (
+                <div className="text-xxs text-muted mt-2">
+                  * Fee Clearance: Accrued fees of {formatCurrency(totalAccruedFees, currency, { decimals: 2 })} are transparently cleared upon redemption.
+                </div>
+              )}
             </div>
           )}
 

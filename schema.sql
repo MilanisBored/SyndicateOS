@@ -84,10 +84,10 @@ ALTER TABLE transactions ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS verified_by UUID REFERENCES auth.users(id);
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS verification_notes TEXT;
 
--- Treasury & Cash Reserve accounting: allow native 'cash_adjustment' transaction types
+-- Treasury, Fee Settlement & Cash Reserve accounting: allow native 'cash_adjustment' and 'fee_settlement' transaction types
 ALTER TABLE transactions DROP CONSTRAINT IF EXISTS transactions_type_check;
 ALTER TABLE transactions ADD CONSTRAINT transactions_type_check 
-    CHECK (type IN ('deposit', 'withdrawal', 'valuation_update', 'cash_adjustment'));
+    CHECK (type IN ('deposit', 'withdrawal', 'valuation_update', 'cash_adjustment', 'fee_settlement'));
 
 -- 4. Portfolio Holdings (Underlying assets bought with pooled money)
 CREATE TABLE IF NOT EXISTS holdings (
@@ -137,6 +137,18 @@ ALTER TABLE funds ADD COLUMN IF NOT EXISTS management_fee_pct NUMERIC(5, 2) DEFA
 ALTER TABLE funds ADD COLUMN IF NOT EXISTS performance_fee_pct NUMERIC(5, 2) DEFAULT 20.00;
 ALTER TABLE funds ADD COLUMN IF NOT EXISTS hurdle_rate_pct NUMERIC(5, 2) DEFAULT 8.00;
 ALTER TABLE funds ADD COLUMN IF NOT EXISTS high_water_mark NUMERIC(20, 6) DEFAULT 100.00;
+
+-- 4c. Time-Segmented Fee Schedules (Historical & Effective-Dated Fee Amendments)
+CREATE TABLE IF NOT EXISTS fund_fee_schedules (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    fund_id UUID REFERENCES funds(id) ON DELETE CASCADE,
+    effective_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    management_fee_pct NUMERIC(5, 2) NOT NULL DEFAULT 2.00,
+    performance_fee_pct NUMERIC(5, 2) NOT NULL DEFAULT 20.00,
+    hurdle_rate_pct NUMERIC(5, 2) NOT NULL DEFAULT 8.00,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
 -- 5. Daily NAV History & Snapshots (EOD Time-Series)
 CREATE TABLE IF NOT EXISTS nav_history (
@@ -397,6 +409,18 @@ WITH CHECK (
 
 -- 8. HOLDING LOTS: Visible to fund members, manageable by fund manager
 CREATE POLICY "Holding Lots Privacy Policy" ON holding_lots
+FOR ALL
+USING (
+    public.can_access_fund(fund_id, auth.uid(), auth.jwt() ->> 'email')
+)
+WITH CHECK (
+    public.is_fund_owner(fund_id, auth.uid(), auth.jwt() ->> 'email')
+);
+
+-- 9. FUND FEE SCHEDULES: Visible to fund members, manageable by fund manager
+ALTER TABLE fund_fee_schedules ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Fee Schedules Privacy Policy" ON fund_fee_schedules;
+CREATE POLICY "Fee Schedules Privacy Policy" ON fund_fee_schedules
 FOR ALL
 USING (
     public.can_access_fund(fund_id, auth.uid(), auth.jwt() ->> 'email')
