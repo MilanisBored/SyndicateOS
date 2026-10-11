@@ -416,7 +416,9 @@ export default function StatementsView({
             <div className="card p-3" style={{ background: 'var(--bg-subtle)' }}>
               <span className="text-muted block text-xxs mono">TOTAL FUND AUM</span>
               <span className="text-lg font-bold mono text-primary">{formatCurrency(fundMetrics.totalFundAUM, currency)}</span>
-              <span className="text-xxs text-profit block mt-1">+{formatNumber(fundMetrics.totalFundRoiPct, 1)}% Net Return</span>
+              <span className={`text-xxs block mt-1 ${(fundMetrics.totalFundRoiPct || 0) >= 0 ? 'text-profit' : 'text-loss'}`}>
+                {(fundMetrics.totalFundRoiPct || 0) >= 0 ? '+' : ''}{formatNumber(fundMetrics.totalFundRoiPct || 0, 1)}% Net Return
+              </span>
             </div>
             <div className="card p-3" style={{ background: 'var(--bg-subtle)' }}>
               <span className="text-muted block text-xxs mono">OUTSTANDING UNITS</span>
@@ -471,11 +473,27 @@ export default function StatementsView({
                 <tbody>
                   <tr>
                     <td className="font-semibold text-primary">Syndicate Net Return</td>
-                    <td className="mono text-right text-profit">+{formatNumber(fundMetrics.timeframes?.['1D']?.pct || 0, 2)}%</td>
-                    <td className="mono text-right text-profit">+{formatNumber(fundMetrics.timeframes?.['1W']?.pct || 0, 2)}%</td>
-                    <td className="mono text-right text-profit">+{formatNumber(fundMetrics.timeframes?.['1M']?.pct || 0, 2)}%</td>
-                    <td className="mono text-right text-profit">+{formatNumber(fundMetrics.timeframes?.['YTD']?.pct || 0, 2)}%</td>
-                    <td className="mono font-bold text-right text-profit">+{formatNumber(fundMetrics.totalFundRoiPct, 1)}%</td>
+                    {['1D', '1W', '1M', 'YTD'].map((key) => {
+                      const val = Number(fundMetrics.timeframes?.[key]?.pct) || 0;
+                      const isPos = val >= 0;
+                      return (
+                        <td 
+                          key={key} 
+                          className={`mono text-right ${isPos ? 'text-profit' : 'text-loss'}`}
+                        >
+                          {isPos ? '+' : ''}{formatNumber(val, 2)}%
+                        </td>
+                      );
+                    })}
+                    {(() => {
+                      const val = Number(fundMetrics.totalFundRoiPct) || 0;
+                      const isPos = val >= 0;
+                      return (
+                        <td className={`mono font-bold text-right ${isPos ? 'text-profit' : 'text-loss'}`}>
+                          {isPos ? '+' : ''}{formatNumber(val, 1)}%
+                        </td>
+                      );
+                    })()}
                   </tr>
                   <tr>
                     <td className="text-muted">Benchmark Floor (7% p.a.)</td>
