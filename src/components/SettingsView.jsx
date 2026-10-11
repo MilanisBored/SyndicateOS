@@ -1,10 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { CURRENCIES, INITIAL_DEMO_DATA } from '../utils/navEngine';
 import { 
-  getSupabaseCredentials, 
   isSupabaseConfigured,
-  cleanSupabaseUrl,
-  cleanSupabaseKey,
   fetchAllFromSupabase,
   insertTransactionToSupabase,
   insertMemberToSupabase,
@@ -12,8 +9,8 @@ import {
   insertIncomeToSupabase,
   insertSoloAssetToSupabase,
   updateFundInSupabase,
-  wipeSupabaseDatabase,
-  testSupabaseConnection
+  testSupabaseConnection,
+  wipeSupabaseDatabase
 } from '../lib/supabaseClient';
 
 export default function SettingsView({ 
@@ -28,15 +25,11 @@ export default function SettingsView({
   currentUser
 }) {
   const fileInputRef = useRef(null);
-  const currentCredentials = getSupabaseCredentials();
 
-  const [sbUrl, setSbUrl] = useState(currentCredentials.url);
-  const [sbKey, setSbKey] = useState(currentCredentials.key);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncStatus, setSyncStatus] = useState('');
   const [diagnostic, setDiagnostic] = useState(null);
   const [isTesting, setIsTesting] = useState(false);
-
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState('');
   const isConnected = isSupabaseConfigured();
 
   const handleRunDiagnostic = async () => {
@@ -55,29 +48,19 @@ export default function SettingsView({
     }
   };
 
-  const handleSaveCredentials = () => {
-    const cleanedUrl = cleanSupabaseUrl(sbUrl);
-    const cleanedKey = cleanSupabaseKey(sbKey);
-
-    if (!cleanedUrl || !cleanedKey) {
-      localStorage.removeItem('syndicate_sb_url');
-      localStorage.removeItem('syndicate_sb_key');
-      alert('Cleared Supabase credentials. Reverted to local storage.');
+  const handleClearLocalCache = () => {
+    if (!confirm('This will clear local browser cache for this device. Remote database records will remain intact. Continue?')) {
+      return;
+    }
+    try {
+      localStorage.removeItem('syndicate_cached_fund_state');
+      localStorage.removeItem('syndicate_cached_funds_list');
+      localStorage.removeItem('syndicatevault_state_v2');
+      alert('Local browser cache cleared.');
       window.location.reload();
-      return;
+    } catch (e) {
+      console.error(e);
     }
-
-    if (!cleanedUrl.startsWith('http') || !cleanedUrl.includes('supabase.co')) {
-      alert('Please enter a valid Supabase URL, for example: https://bncqjgflhilmmhousnkr.supabase.co');
-      return;
-    }
-
-    localStorage.setItem('syndicate_sb_url', cleanedUrl);
-    localStorage.setItem('syndicate_sb_key', cleanedKey);
-    setSbUrl(cleanedUrl);
-    setSbKey(cleanedKey);
-    alert('Supabase credentials connected successfully!');
-    window.location.reload();
   };
 
   const handleSyncCurrentToSupabase = async () => {
@@ -177,97 +160,61 @@ export default function SettingsView({
         {/* Supabase Database Connection */}
         <div className="card p-4">
           <div className="section-head mb-2">
-            <span className="font-semibold text-xs text-muted uppercase">Supabase Cloud PostgreSQL</span>
+            <span className="font-semibold text-xs text-muted uppercase">PostgreSQL Cloud Engine</span>
             <span className={`badge ${isConnected ? 'badge-profit' : 'badge-neutral'} mono`}>
-              {isConnected ? 'CONNECTED' : 'LOCAL STORAGE'}
+              {isConnected ? '[CONNECTED: CLOUD DB]' : '[OFFLINE / LOCAL]'}
             </span>
           </div>
 
           <p className="text-xs text-muted mb-3">
-            Paste your Project URL & Anon Key from Supabase (<strong>Project Settings &gt; API</strong>) to sync data to the cloud.
+            Institutional database connection is configured automatically. Multi-tenant access controls isolate portfolio data strictly to authorized syndicate participants.
           </p>
 
-          <div className="form-group">
-            <label className="form-label">Project URL</label>
-            <input
-              type="text"
-              placeholder="https://xyzcompany.supabase.co"
-              value={sbUrl}
-              onChange={(e) => setSbUrl(e.target.value)}
-              className="form-input mono"
-            />
+          <div className="p-3 mb-3 text-xs mono" style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border-subtle)', borderRadius: '4px' }}>
+            <div className="flex justify-between items-center mb-1">
+              <span className="text-muted">Database Engine:</span>
+              <span className="text-primary">Universal Supabase Managed Pool</span>
+            </div>
+            <div className="flex justify-between items-center mb-1">
+              <span className="text-muted">Active Session:</span>
+              <span className="text-primary">{currentUser?.email || '[Unauthenticated Visitor]'}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-muted">Access Boundary:</span>
+              <span className="text-profit">Strict Multi-Tenant Isolation</span>
+            </div>
           </div>
 
-          <div className="form-group">
-            <label className="form-label">Anon / Public Key</label>
-            <input
-              type="password"
-              placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-              value={sbKey}
-              onChange={(e) => setSbKey(e.target.value)}
-              className="form-input mono"
-            />
-          </div>
-
-          <div className="flex gap-2 pt-2">
+          <div className="flex gap-2 pt-1">
             <button
               type="button"
-              className="btn btn-primary btn-sm flex-1"
-              onClick={handleSaveCredentials}
+              className="btn btn-secondary btn-sm flex-1"
+              onClick={handleRunDiagnostic}
+              disabled={isTesting}
             >
-              Save & Connect
+              {isTesting ? 'Verifying...' : 'Verify Database Link'}
             </button>
-            {isConnected && (
-              <>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={handleRunDiagnostic}
-                  disabled={isTesting}
-                >
-                  {isTesting ? 'Checking...' : 'Test DB & Sync'}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={handleSyncCurrentToSupabase}
-                  disabled={isSyncing}
-                >
-                  {isSyncing ? 'Syncing...' : 'Upload Local Data'}
-                </button>
-              </>
-            )}
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={handleClearLocalCache}
+              title="Purge cached browser data on this client machine"
+            >
+              Clear Local Cache
+            </button>
           </div>
-          {syncStatus && <div className="text-xs text-profit mt-2 mono">{syncStatus}</div>}
 
           {diagnostic && (
-            <div className="mt-3 p-3 card bg-loss-subtle text-xs mono" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
+            <div className="mt-3 p-3 text-xs mono" style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border-subtle)', borderRadius: '4px' }}>
               <div className="flex justify-between items-center mb-1">
-                <span className="font-semibold text-secondary">Supabase Live Diagnostic:</span>
+                <span className="font-semibold text-secondary">Connection Health:</span>
                 <span className={`badge ${diagnostic.success ? 'badge-profit' : 'badge-loss'}`}>
-                  {diagnostic.success ? 'Operational' : 'Issues Detected'}
+                  {diagnostic.success ? '[OPERATIONAL]' : '[FAILED]'}
                 </span>
               </div>
-              {diagnostic.counts && (
-                <div className="grid grid-cols-3 gap-2 mt-2 text-muted">
-                  <div>Funds: <strong className="text-primary">{diagnostic.counts.funds}</strong></div>
-                  <div>Members: <strong className="text-primary">{diagnostic.counts.members}</strong></div>
-                  <div>Transactions: <strong className="text-primary">{diagnostic.counts.transactions}</strong></div>
-                  <div>Holdings: <strong className="text-primary">{diagnostic.counts.holdings}</strong></div>
-                  <div>Incomes: <strong className="text-primary">{diagnostic.counts.incomes}</strong></div>
-                  <div>Solo Assets: <strong className="text-primary">{diagnostic.counts.assets}</strong></div>
-                </div>
-              )}
-              {diagnostic.memberNames && diagnostic.memberNames.length > 0 && (
-                <div className="mt-2 text-muted">
-                  Found Members: <strong className="text-primary">{diagnostic.memberNames.join(', ')}</strong>
-                </div>
-              )}
-              {diagnostic.errors && (
-                <div className="mt-2 text-loss">
-                  {diagnostic.errors}
-                </div>
-              )}
+              <div className="text-muted mt-1">
+                Status: <span className="text-primary">{diagnostic.status || (diagnostic.success ? 'Database reachable & verified.' : diagnostic.error)}</span>
+              </div>
             </div>
           )}
         </div>
@@ -394,10 +341,10 @@ export default function SettingsView({
         <div className="card p-4 flex flex-col justify-between">
           <div>
             <div className="section-head mb-3">
-              <span className="font-semibold text-xs text-muted uppercase">Clean Reset</span>
+              <span className="font-semibold text-xs text-muted uppercase">Syndicate Data Reset</span>
             </div>
             <p className="text-xs text-muted mb-3">
-              Wipe all demo / false data from both your Supabase cloud database and local cache to start fresh.
+              Reset cached records or purge active fund transactions and positions to restart with a clean slate.
             </p>
           </div>
 
@@ -407,23 +354,27 @@ export default function SettingsView({
               className="btn btn-secondary btn-sm"
               style={{ color: 'var(--loss)' }}
               onClick={async () => {
-                if (confirm('PERMANENT ACTION: Delete all members, transactions, holdings, and personal records from your Supabase database?')) {
+                if (confirm(`PERMANENT ACTION: Delete transactions, members, and holdings belonging specifically to syndicate "${fundInfo.name || 'Current Fund'}"?`)) {
                   setIsSyncing(true);
                   try {
-                    await wipeSupabaseDatabase();
+                    if (fundInfo?.id) {
+                      await wipeSupabaseDatabase(fundInfo.id);
+                    }
                     localStorage.removeItem('syndicatevault_state_v2');
                     localStorage.removeItem('syndicatevault_state_v1');
-                    alert('Database wiped completely. You now have a clean slate.');
+                    localStorage.removeItem('syndicate_cached_fund_state');
+                    localStorage.removeItem('syndicate_cached_funds_list');
+                    alert('Active syndicate records wiped. You now have a clean slate.');
                     window.location.reload();
                   } catch (e) {
-                    alert('Error wiping database: ' + e.message);
+                    alert('Error resetting syndicate records: ' + e.message);
                   } finally {
                     setIsSyncing(false);
                   }
                 }
               }}
             >
-              Wipe Database to Clean Slate (0 Rows)
+              Wipe Active Syndicate Records (0 Rows)
             </button>
           </div>
         </div>

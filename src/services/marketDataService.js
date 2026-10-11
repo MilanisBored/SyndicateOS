@@ -118,12 +118,17 @@ export async function searchMutualFundsAMFI(query) {
 
   // Pass 1: Try clean term query
   try {
-    const res = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(cleanTerm)}`);
+    const res = await fetch(getApiUrl(`/api/amfi/mf/search?q=${encodeURIComponent(cleanTerm)}`));
     if (res.ok) {
       data = await res.json();
     }
   } catch (err) {
-    console.error('AMFI search error:', err);
+    try {
+      const fallbackDirect = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(cleanTerm)}`);
+      if (fallbackDirect.ok) data = await fallbackDirect.json();
+    } catch (e) {
+      console.warn('AMFI search error:', err);
+    }
   }
 
   // Pass 2: If no results, strip noise words and search leading brand/fund keywords
@@ -132,14 +137,14 @@ export async function searchMutualFundsAMFI(query) {
     const words = cleanTerm.split(/\s+/).filter(w => !noiseWords.includes(w.toLowerCase()));
     if (words.length >= 2) {
       try {
-        const fallbackRes = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(words.slice(0, 2).join(' '))}`);
+        const fallbackRes = await fetch(getApiUrl(`/api/amfi/mf/search?q=${encodeURIComponent(words.slice(0, 2).join(' '))}`));
         if (fallbackRes.ok) {
           data = await fallbackRes.json();
         }
       } catch (e) {}
     } else if (words.length === 1 && words[0].length >= 3) {
       try {
-        const fallbackRes = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(words[0])}`);
+        const fallbackRes = await fetch(getApiUrl(`/api/amfi/mf/search?q=${encodeURIComponent(words[0])}`));
         if (fallbackRes.ok) {
           data = await fallbackRes.json();
         }
@@ -150,7 +155,7 @@ export async function searchMutualFundsAMFI(query) {
   // Pass 3: If still no results and rawTerm differed from cleanTerm, try rawTerm directly
   if ((!Array.isArray(data) || data.length === 0) && rawTerm !== cleanTerm) {
     try {
-      const res = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(rawTerm)}`);
+      const res = await fetch(getApiUrl(`/api/amfi/mf/search?q=${encodeURIComponent(rawTerm)}`));
       if (res.ok) {
         data = await res.json();
       }
@@ -378,6 +383,35 @@ export async function searchGlobalMarkets(query) {
     }
   }
 
+  // Relevance ranking: Prioritize exact symbol and name matches to the top
+  const termLower = rawTerm.toLowerCase();
+  combined.sort((a, b) => {
+    const aSym = (a.symbol || '').toLowerCase();
+    const bSym = (b.symbol || '').toLowerCase();
+    const aName = (a.name || '').toLowerCase();
+    const bName = (b.name || '').toLowerCase();
+
+    // Exact symbol prefix match (e.g. RELIANCE.NS for query "reliance")
+    const aSymExact = aSym === termLower || aSym.startsWith(`${termLower}.`) || aSym.startsWith(termLower);
+    const bSymExact = bSym === termLower || bSym.startsWith(`${termLower}.`) || bSym.startsWith(termLower);
+    if (aSymExact && !bSymExact) return -1;
+    if (!aSymExact && bSymExact) return 1;
+
+    // Exact name prefix match
+    const aNamePrefix = aName.startsWith(termLower);
+    const bNamePrefix = bName.startsWith(termLower);
+    if (aNamePrefix && !bNamePrefix) return -1;
+    if (!aNamePrefix && bNamePrefix) return 1;
+
+    // Name contains match
+    const aNameContains = aName.includes(termLower);
+    const bNameContains = bName.includes(termLower);
+    if (aNameContains && !bNameContains) return -1;
+    if (!aNameContains && bNameContains) return 1;
+
+    return 0;
+  });
+
   return combined;
 }
 
@@ -405,10 +439,19 @@ export async function fetchMutualFundNav(schemeCodeOrName) {
     schemeName = chosen.schemeName;
   }
 
-  const url = `https://api.mfapi.in/mf/${schemeCode}`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch NAV from AMFI for code ${schemeCode} (${res.statusText})`);
+  let res;
+  try {
+    res = await fetch(getApiUrl(`/api/amfi/mf/${schemeCode}`));
+  } catch (e) {
+    res = await fetch(`https://api.mfapi.in/mf/${schemeCode}`);
+  }
+  if (!res || !res.ok) {
+    try {
+      res = await fetch(`https://api.mfapi.in/mf/${schemeCode}`);
+    } catch (e) {}
+  }
+  if (!res || !res.ok) {
+    throw new Error(`Failed to fetch NAV from AMFI for code ${schemeCode} (${res?.statusText || 'offline'})`);
   }
 
   const result = await res.json();

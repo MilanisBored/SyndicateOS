@@ -20,6 +20,9 @@ import {
   updateTransactionStatusInSupabase,
   acceptSyndicateInvitation,
   declineSyndicateInvitation,
+  executeHoldingTrimInSupabase,
+  upsertHoldingLotToSupabase,
+  deleteHoldingLotFromSupabase,
   getSupabase,
   getAuthSession,
   getCachedAuthSession,
@@ -393,6 +396,54 @@ export default function App() {
     }));
   };
 
+  const handleExecuteTradeTrim = async ({ holdingId, units, exitPrice, strategy }) => {
+    if (isConnectedToCloud) {
+      try {
+        const result = await executeHoldingTrimInSupabase({
+          holdingId,
+          unitsToTrim: units,
+          exitPrice,
+          strategy,
+          fundId: appState.fundInfo?.id
+        });
+        await refreshFromSupabase(appState.fundInfo?.id, true);
+        return result;
+      } catch (err) {
+        console.error('Trade trim execution failed in Supabase:', err);
+        setCloudError(`Trade trim execution failed: ${err.message}`);
+        throw err;
+      }
+    } else {
+      // Local fallback lot depletion
+      setAppState(prev => {
+        const target = prev.holdings.find(h => h.id === holdingId);
+        if (!target) return prev;
+        const currentUnits = Number(target.units || 1);
+        const currentCost = Number(target.investedAmount || 0);
+        const unitCost = currentUnits > 0 ? currentCost / currentUnits : 0;
+        const trimCost = units * unitCost;
+        const proceeds = units * exitPrice;
+        const gain = proceeds - trimCost;
+
+        const newUnits = Math.max(0, currentUnits - units);
+        const newCost = Math.max(0, currentCost - trimCost);
+        const newRealized = Number(target.realizedPnl || 0) + gain;
+
+        const updated = prev.holdings.map(h => h.id === holdingId ? {
+          ...h,
+          units: newUnits,
+          investedAmount: newCost,
+          currentValue: newUnits * exitPrice,
+          realizedPnl: newRealized,
+          status: newUnits <= 0.000001 ? 'closed' : h.status
+        } : h);
+
+        return { ...prev, holdings: updated };
+      });
+      return { holdingId, unitsTrimmed: units, totalProceeds: units * exitPrice };
+    }
+  };
+
   const setPersonalFinances = (newFinancesAction) => {
     setAppState((prev) => {
       const updated = typeof newFinancesAction === 'function' ? newFinancesAction(prev.personalFinances) : newFinancesAction;
@@ -582,16 +633,19 @@ export default function App() {
   };
 
   const handleSyncHoldingsToNAV = () => {
-    const totalValue = appState.holdings.reduce((sum, h) => sum + (Number(h.currentValue) || 0), 0);
-    if (totalValue <= 0) return;
+    const totalHoldingsVal = appState.holdings.reduce((sum, h) => sum + (Number(h.currentValue ?? h.current_value) || 0), 0);
+    if (totalHoldingsVal <= 0) return;
+
+    const totalAUM = totalHoldingsVal + (Number(fundMetrics.undeployedCash) || 0);
+    const newNav = fundMetrics.totalUnits > 0 ? (totalAUM / fundMetrics.totalUnits) : fundMetrics.currentNav;
 
     const newTx = {
       id: `tx_${Date.now()}`,
       date: new Date().toISOString().split('T')[0],
       type: 'valuation_update',
       memberId: null,
-      amount: totalValue,
-      nav: fundMetrics.totalUnits > 0 ? totalValue / fundMetrics.totalUnits : fundMetrics.currentNav,
+      amount: totalAUM,
+      nav: newNav,
       units: 0,
       note: `Holdings valuation sync (${appState.holdings.length} positions)`,
     };
@@ -793,6 +847,8 @@ export default function App() {
               holdings={appState.holdings}
               onSaveHolding={handleSaveHolding}
               onDeleteHolding={handleDeleteHolding}
+              onExecuteTradeTrim={handleExecuteTradeTrim}
+              onAddTransaction={handleAddTransaction}
               fundMetrics={fundMetrics}
               currency={currency}
               fundInfo={appState.fundInfo}
@@ -819,6 +875,7 @@ export default function App() {
               fundMetrics={fundMetrics}
               fundInfo={appState.fundInfo}
               currency={currency}
+              holdings={appState.holdings}
               currentUser={session?.user}
               perspective={effectivePerspective}
               onSelectMember={(m) => setSelectedMemberForStatement(m)}

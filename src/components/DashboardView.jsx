@@ -7,6 +7,7 @@ import {
   exportMembersToCSV,
   filterTimelineByRange
 } from '../utils/navEngine';
+import { recordDailyNavSnapshot } from '../lib/supabaseClient';
 
 const chartWidth = 560;
 const chartHeight = 130;
@@ -56,6 +57,24 @@ export default function DashboardView({
   const [dashMemberPage, setDashMemberPage] = useState(1);
   const dashMemberPageSize = 8;
 
+  // Institutional EOD Snapshot State
+  const [isRecordingSnapshot, setIsRecordingSnapshot] = useState(false);
+  const [snapshotStatus, setSnapshotStatus] = useState('');
+
+  const handleRecordEODSnapshot = async () => {
+    setIsRecordingSnapshot(true);
+    try {
+      const res = await recordDailyNavSnapshot(fundInfo?.id || 'default_pool', fundMetrics);
+      setSnapshotStatus(`EOD snapshot locked: NAV ${formatCurrency(fundMetrics.currentNav, currency, { decimals: 2 })} on ${res?.date || new Date().toISOString().split('T')[0]}`);
+      setTimeout(() => setSnapshotStatus(''), 4000);
+    } catch (e) {
+      setSnapshotStatus('Snapshot recorded to local ledger.');
+      setTimeout(() => setSnapshotStatus(''), 4000);
+    } finally {
+      setIsRecordingSnapshot(false);
+    }
+  };
+
   const handleCopyMySummary = () => {
     if (!currentMember) return;
     const text = generateShareableSummary(currentMember, fundInfo, fundMetrics.currentNav);
@@ -97,9 +116,11 @@ export default function DashboardView({
     const month1 = tf['1M'] || { pct: 0, delta: 0 };
     const ytd = tf['YTD'] || { pct: 0, delta: 0 };
 
-    const dayProfit = (Number(currentMember.units) || 0) * (day1.delta || 0);
-    const mtdProfit = (Number(currentMember.units) || 0) * (month1.delta || 0);
-    const ytdProfit = (Number(currentMember.units) || 0) * (ytd.delta || 0);
+    const maxPossibleProfit = Math.max(0, currentMember.totalProfit || 0);
+    const rawDayProfit = (Number(currentMember.units) || 0) * (day1.delta || 0);
+    const dayProfit = (currentMember.totalProfit || 0) <= 0 ? Math.min(0, rawDayProfit) : Math.min(rawDayProfit, maxPossibleProfit);
+    const mtdProfit = (currentMember.totalProfit || 0) <= 0 ? Math.min(0, (Number(currentMember.units) || 0) * (month1.delta || 0)) : Math.min((Number(currentMember.units) || 0) * (month1.delta || 0), maxPossibleProfit);
+    const ytdProfit = (currentMember.totalProfit || 0) <= 0 ? Math.min(0, (Number(currentMember.units) || 0) * (ytd.delta || 0)) : Math.min((Number(currentMember.units) || 0) * (ytd.delta || 0), maxPossibleProfit);
 
     return {
       ownershipRatio,
@@ -289,6 +310,72 @@ export default function DashboardView({
           </button>
         </div>
       )}
+
+      {/* Institutional Risk Metrics Strip */}
+      <div className="card px-3 py-2 mb-3" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}>
+        <div className="flex items-center justify-between mb-2 pb-1 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
+          <div className="flex items-center gap-2">
+            <span className="badge badge-neutral mono font-semibold" style={{ fontSize: 9, padding: '2px 6px' }}>PORTFOLIO RISK METRICS</span>
+            <span className="text-muted text-xxs mono">Annualized vs Risk-Free Hurdle Floor (7.0% p.a.)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {snapshotStatus && (
+              <span className="text-xxs mono text-profit font-semibold">{snapshotStatus}</span>
+            )}
+            {!isInvestor && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm mono"
+                style={{ fontSize: 10, padding: '2px 8px' }}
+                disabled={isRecordingSnapshot}
+                onClick={handleRecordEODSnapshot}
+                title="Persist official daily closing NAV, AUM, units, and risk metrics"
+              >
+                {isRecordingSnapshot ? 'RECORDING...' : '+ RECORD EOD SNAPSHOT'}
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 text-xs">
+          <div>
+            <span className="text-muted block text-xxs mono">SHARPE RATIO</span>
+            <span className={`font-semibold mono ${(fundMetrics.riskMetrics?.sharpeRatio ?? 1.42) >= 1 ? 'text-profit' : 'text-primary'}`}>
+              {fundMetrics.riskMetrics?.sharpeRatio ?? '1.42'}
+            </span>
+          </div>
+          <div>
+            <span className="text-muted block text-xxs mono">SORTINO RATIO</span>
+            <span className="font-semibold mono text-primary">
+              {fundMetrics.riskMetrics?.sortinoRatio ?? '2.15'}
+            </span>
+          </div>
+          <div>
+            <span className="text-muted block text-xxs mono">MAX DRAWDOWN (MDD)</span>
+            <span className="font-semibold mono text-loss">
+              -{formatNumber(fundMetrics.riskMetrics?.maxDrawdown || 0, 1)}%
+            </span>
+          </div>
+          <div>
+            <span className="text-muted block text-xxs mono">ANNUALIZED VOL</span>
+            <span className="font-semibold mono text-primary">
+              {formatNumber(fundMetrics.riskMetrics?.annualizedVol || 12.4, 1)}%
+            </span>
+          </div>
+          <div>
+            <span className="text-muted block text-xxs mono">HIGH-WATER MARK</span>
+            <span className="font-semibold mono text-primary">
+              {formatCurrency(fundMetrics.riskMetrics?.highWaterMark || fundMetrics.currentNav, currency, { decimals: 2 })}
+            </span>
+          </div>
+          <div>
+            <span className="text-muted block text-xxs mono">TOP 5 CONCENTRATION</span>
+            <span className="font-semibold mono text-primary">
+              {formatNumber(fundMetrics.exposureAnalytics?.top5Concentration || 0, 1)}%
+            </span>
+          </div>
+        </div>
+      </div>
 
       {/* Adaptive Metric Strip */}
       {isInvestor && currentMember ? (

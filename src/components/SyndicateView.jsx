@@ -5,6 +5,7 @@ import {
   exportMembersToCSV, 
   exportTransactionsToCSV 
 } from '../utils/navEngine';
+import { updateFundFeeSettings } from '../lib/supabaseClient';
 import MemberDeleteGatekeeperModal from './MemberDeleteGatekeeperModal';
 
 export default function SyndicateView({ 
@@ -39,6 +40,38 @@ export default function SyndicateView({
   const [ledgerPageSize, setLedgerPageSize] = useState(25);
   const [memberForDeletion, setMemberForDeletion] = useState(null);
 
+  // Institutional Fee Waterfall Configuration
+  const [isFeeModalOpen, setIsFeeModalOpen] = useState(false);
+  const [feeMgmtPct, setFeeMgmtPct] = useState(fundInfo?.managementFeePct ?? 2.0);
+  const [feePerfPct, setFeePerfPct] = useState(fundInfo?.performanceFeePct ?? 20.0);
+  const [feeHurdlePct, setFeeHurdlePct] = useState(fundInfo?.hurdleRatePct ?? 8.0);
+  const [feeHwm, setFeeHwm] = useState(fundInfo?.highWaterMark ?? 100.0);
+  const [isSavingFees, setIsSavingFees] = useState(false);
+  const [feeSaveSuccess, setFeeSaveSuccess] = useState(false);
+
+  const handleSaveFees = async (e) => {
+    e.preventDefault();
+    setIsSavingFees(true);
+    try {
+      await updateFundFeeSettings(fundInfo?.id || 'default_pool', {
+        managementFeePct: Number(feeMgmtPct),
+        performanceFeePct: Number(feePerfPct),
+        hurdleRatePct: Number(feeHurdlePct),
+        highWaterMark: Number(feeHwm)
+      });
+      setFeeSaveSuccess(true);
+      setTimeout(() => {
+        setFeeSaveSuccess(false);
+        setIsFeeModalOpen(false);
+        window.location.reload();
+      }, 1000);
+    } catch (err) {
+      console.error('Error saving fee settings:', err);
+    } finally {
+      setIsSavingFees(false);
+    }
+  };
+
   const isInvestor = perspective === 'investor' || fundInfo?.userRole === 'investor';
   const userEmail = (currentUser?.email || '').toLowerCase().trim();
 
@@ -60,9 +93,11 @@ export default function SyndicateView({
       const ownershipRatio = totalFundUnits > 0 ? (Number(m.units || 0) / totalFundUnits) : ((Number(m.ownershipPct) || 0) / 100);
       const cashShare = (Number(fundMetrics?.undeployedCash) || 0) * ownershipRatio;
       const assetShare = (Number(fundMetrics?.holdingsTotal) || 0) * ownershipRatio;
-      const dayProfit = (Number(m.units) || 0) * (day1.delta || 0);
-      const mtdProfit = (Number(m.units) || 0) * (month1.delta || 0);
-      const ytdProfit = (Number(m.units) || 0) * (ytd.delta || 0);
+      const maxPossibleProfit = Math.max(0, m.totalProfit || 0);
+      const rawDayProfit = (Number(m.units) || 0) * (day1.delta || 0);
+      const dayProfit = (m.totalProfit || 0) <= 0 ? Math.min(0, rawDayProfit) : Math.min(rawDayProfit, maxPossibleProfit);
+      const mtdProfit = (m.totalProfit || 0) <= 0 ? Math.min(0, (Number(m.units) || 0) * (month1.delta || 0)) : Math.min((Number(m.units) || 0) * (month1.delta || 0), maxPossibleProfit);
+      const ytdProfit = (m.totalProfit || 0) <= 0 ? Math.min(0, (Number(m.units) || 0) * (ytd.delta || 0)) : Math.min((Number(m.units) || 0) * (ytd.delta || 0), maxPossibleProfit);
 
       return {
         ...m,
@@ -198,6 +233,17 @@ export default function SyndicateView({
           )}
           {!isInvestor ? (
             <>
+              <button 
+                type="button" 
+                className="btn btn-secondary btn-sm mono"
+                style={{ fontSize: 11 }}
+                onClick={() => setIsFeeModalOpen(true)}
+                title="Configure Management Fee, Performance Fee, and Hurdle Rate Waterfall"
+              >
+                Fees & Hurdle {((fundMetrics?.institutionalFeeWaterfalls?.mgmtFeeAccrual || 0) + (fundMetrics?.institutionalFeeWaterfalls?.perfFeeAccrual || 0)) > 0 
+                  ? `(Accrued: ${formatCurrency((fundMetrics.institutionalFeeWaterfalls.mgmtFeeAccrual || 0) + (fundMetrics.institutionalFeeWaterfalls.perfFeeAccrual || 0), currency, { decimals: 0 })})` 
+                  : ''}
+              </button>
               <button 
                 type="button" 
                 className="btn btn-secondary btn-sm"
@@ -561,6 +607,11 @@ export default function SyndicateView({
                         <span className="text-xs text-muted mono">
                           {member.role}
                         </span>
+                        {member.capitalLots && member.capitalLots.length > 0 && (
+                          <span className="badge badge-neutral mono" style={{ fontSize: 9 }}>
+                            {member.capitalLots.filter(l => l.status !== 'redeemed').length} ACTIVE LOTS
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="shrink-0">
@@ -977,6 +1028,165 @@ export default function SyndicateView({
           }}
           onOpenTransactionModal={onOpenTransactionModal}
         />
+      )}
+
+      {/* Institutional Fee Waterfall Configuration Modal */}
+      {isFeeModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsFeeModalOpen(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 520 }}>
+            <div className="section-head mb-3">
+              <div>
+                <span className="section-title">Institutional Fee & Waterfall Settings</span>
+                <span className="text-xs text-muted block">
+                  Configure institutional fund fee waterfalls, hurdle floors, and LP watermarks.
+                </span>
+              </div>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setIsFeeModalOpen(false)}>
+                Cancel
+              </button>
+            </div>
+
+            {/* Live Accrued Fees Summary */}
+            {(() => {
+              const wf = fundMetrics.institutionalFeeWaterfalls || {};
+              const totalAccrued = (wf.mgmtFeeAccrual || 0) + (wf.perfFeeAccrual || 0);
+              return (
+                <div className="card p-3 mb-3 text-xs" style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border-subtle)' }}>
+                  <div className="flex justify-between items-center mb-2 pb-1 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
+                    <span className="font-semibold text-primary">Live Accrued Fees (Current PnL)</span>
+                    <span className="badge badge-neutral mono" style={{ fontSize: 9 }}>STATUS: LIVE MTM</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 mono">
+                    <div>
+                      <span className="text-muted block text-xxs">ACCRUED MGMT FEE</span>
+                      <span className="font-semibold text-loss">
+                        {formatCurrency(wf.mgmtFeeAccrual || 0, currency, { decimals: 0 })}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted block text-xxs">ACCRUED INCENTIVE FEE</span>
+                      <span className="font-semibold text-loss">
+                        {formatCurrency(wf.perfFeeAccrual || 0, currency, { decimals: 0 })}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted block text-xxs">TOTAL ACCRUED FEES</span>
+                      <span className="font-semibold text-loss">
+                        {formatCurrency(totalAccrued, currency, { decimals: 0 })}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted block text-xxs">NET DISTRIBUTABLE NAV</span>
+                      <span className="font-semibold text-profit">
+                        {formatCurrency(wf.netNav || fundMetrics.currentNav, currency, { decimals: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-2 pt-2 border-t text-xxs text-muted" style={{ borderColor: 'var(--border-subtle)' }}>
+                    Detailed investor-by-investor audit available in <strong>Statements &rarr; Fee &amp; Watermark Audit</strong>.
+                  </div>
+                </div>
+              );
+            })()}
+
+            <form onSubmit={handleSaveFees} className="space-y-3">
+              <div className="form-group">
+                <label className="form-label text-xs">Annual Management Fee (% p.a.)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="10"
+                  value={feeMgmtPct}
+                  onChange={(e) => setFeeMgmtPct(e.target.value)}
+                  className="form-input mono text-xs"
+                  placeholder="e.g. 2.0"
+                  required
+                />
+                <span className="text-xxs text-muted mt-1 block">
+                  Annualized management fee accrued daily against fund gross AUM. Standard: 1.5% - 2.0%.
+                </span>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label text-xs">Hurdle Rate Floor (% p.a.)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="30"
+                  value={feeHurdlePct}
+                  onChange={(e) => setFeeHurdlePct(e.target.value)}
+                  className="form-input mono text-xs"
+                  placeholder="e.g. 8.0"
+                  required
+                />
+                <span className="text-xxs text-muted mt-1 block">
+                  Minimum annual return hurdle required before any incentive performance fee accrues. Standard: 6.0% - 8.0%.
+                </span>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label text-xs">Performance / Carry Fee (%)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="50"
+                  value={feePerfPct}
+                  onChange={(e) => setFeePerfPct(e.target.value)}
+                  className="form-input mono text-xs"
+                  placeholder="e.g. 20.0"
+                  required
+                />
+                <span className="text-xxs text-muted mt-1 block">
+                  Percentage of net alpha accrued to fund manager above both Hurdle Rate and High-Water Mark. Standard: 20.0%.
+                </span>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label text-xs">Initial High-Water Mark Benchmark (NAV Price)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="1"
+                  value={feeHwm}
+                  onChange={(e) => setFeeHwm(e.target.value)}
+                  className="form-input mono text-xs"
+                  placeholder="e.g. 100.0"
+                  required
+                />
+                <span className="text-xxs text-muted mt-1 block">
+                  Historical peak NAV floor required to be cleared before incentive fees can ever be collected.
+                </span>
+              </div>
+
+              {feeSaveSuccess && (
+                <div className="card p-2 text-profit text-xs mono text-center">
+                  Fee parameters saved successfully! Refreshing valuation engine...
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-3 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setIsFeeModalOpen(false)}
+                  disabled={isSavingFees}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary btn-sm mono"
+                  disabled={isSavingFees}
+                >
+                  {isSavingFees ? 'Saving...' : 'Save Fee Parameters'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

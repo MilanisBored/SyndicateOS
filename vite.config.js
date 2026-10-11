@@ -22,6 +22,14 @@ export default defineConfig({
           'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
         },
       },
+      '/api/amfi': {
+        target: 'https://api.mfapi.in',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/amfi/, ''),
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+        },
+      },
     },
   },
 })

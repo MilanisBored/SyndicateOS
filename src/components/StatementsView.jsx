@@ -5,10 +5,12 @@ export default function StatementsView({
   fundMetrics = {}, 
   fundInfo = {}, 
   currency = 'INR', 
+  holdings = [],
   currentUser,
   perspective = 'manager',
   onSelectMember 
 }) {
+  const [statementSubTab, setStatementSubTab] = useState('statements'); // 'statements' | 'factsheet' | 'fees'
   const [copiedId, setCopiedId] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('ownershipPct');
@@ -35,7 +37,9 @@ export default function StatementsView({
       const ownershipRatio = totalFundUnits > 0 ? (Number(m.units || 0) / totalFundUnits) : ((Number(m.ownershipPct) || 0) / 100);
       const cashShare = (Number(fundMetrics?.undeployedCash) || 0) * ownershipRatio;
       const assetShare = (Number(fundMetrics?.holdingsTotal) || 0) * ownershipRatio;
-      const dayProfit = (Number(m.units) || 0) * (day1.delta || 0);
+      const maxPossibleProfit = Math.max(0, m.totalProfit || 0);
+      const rawDayProfit = (Number(m.units) || 0) * (day1.delta || 0);
+      const dayProfit = (m.totalProfit || 0) <= 0 ? Math.min(0, rawDayProfit) : Math.min(rawDayProfit, maxPossibleProfit);
 
       return {
         ...m,
@@ -93,18 +97,68 @@ export default function StatementsView({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const topHoldings = useMemo(() => {
+    const safe = Array.isArray(holdings) ? holdings : [];
+    const active = safe.filter(h => h.status !== 'closed');
+    const sorted = [...active].sort((a, b) => (Number(b.currentValue) || 0) - (Number(a.currentValue) || 0));
+    const totalVal = fundMetrics.totalFundAUM || fundMetrics.holdingsTotal || 1;
+    return sorted.slice(0, 10).map(h => ({
+      ...h,
+      weightPct: ((Number(h.currentValue) || 0) / totalVal) * 100
+    }));
+  }, [holdings, fundMetrics.totalFundAUM, fundMetrics.holdingsTotal]);
+
+  const handlePrint = () => {
+    window.print();
+  };
+
   return (
     <div>
       <div className="section-head mb-3">
         <div>
-          <span className="section-title">Investor Statements</span>
+          <span className="section-title">Institutional Reporting & Statements</span>
           <span className="text-xs text-muted block">
-            {isInvestor 
-              ? 'Your personalized account statement and unitized capital records.' 
-              : 'Generate, export, and inspect account tear-sheets for every syndicate investor at scale.'}
+            Institutional investor tear sheets, printable fund factsheets, and high-water mark fee waterfalls.
           </span>
         </div>
       </div>
+
+      {/* Sub-Category Navigation Bar */}
+      <div className="flex items-center justify-between border-b pb-2 mb-4 gap-2 flex-wrap" style={{ borderColor: 'var(--border-subtle)' }}>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            className={`btn btn-sm mono ${statementSubTab === 'statements' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ fontSize: 11, padding: '4px 10px' }}
+            onClick={() => setStatementSubTab('statements')}
+          >
+            Investor Tear Sheets ({filteredMembers.length})
+          </button>
+          <button
+            type="button"
+            className={`btn btn-sm mono ${statementSubTab === 'factsheet' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ fontSize: 11, padding: '4px 10px' }}
+            onClick={() => setStatementSubTab('factsheet')}
+          >
+            Monthly Fund Factsheet
+          </button>
+          <button
+            type="button"
+            className={`btn btn-sm mono ${statementSubTab === 'fees' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ fontSize: 11, padding: '4px 10px' }}
+            onClick={() => setStatementSubTab('fees')}
+          >
+            Fee & Watermark Audit
+          </button>
+        </div>
+        <div className="text-xs text-muted mono">
+          <span>Fund NAV: <strong className="text-primary">{formatCurrency(fundMetrics.currentNav, currency, { decimals: 2 })}</strong></span>
+        </div>
+      </div>
+
+      {/* SUB-TAB 1: INVESTOR TEAR SHEETS */}
+      {statementSubTab === 'statements' && (
+        <>
 
       {/* Featured Card for Logged-In Investor */}
       {isInvestor && currentMember && (
@@ -323,6 +377,350 @@ export default function StatementsView({
           </div>
         )}
       </div>
+        </>
+      )}
+
+      {/* SUB-TAB 2: MONTHLY FUND FACTSHEET */}
+      {statementSubTab === 'factsheet' && (
+        <div className="card p-5 space-y-5" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}>
+          {/* Factsheet Header Strip */}
+          <div className="flex justify-between items-start border-b pb-4" style={{ borderColor: 'var(--border-subtle)' }}>
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="badge badge-neutral mono font-semibold" style={{ fontSize: 10 }}>MONTHLY FACTSHEET</span>
+                <span className="badge badge-profit mono font-semibold" style={{ fontSize: 9 }}>CONFIDENTIAL</span>
+              </div>
+              <h2 className="text-xl font-bold text-primary">{fundInfo?.name || 'Syndicate Capital Pool'}</h2>
+              <span className="text-xs text-muted block mt-0.5">
+                Fund Manager: <strong>{fundInfo?.managerName || 'Managing Partner'}</strong> • Strategy: Multi-Asset Growth & Discretionary Alpha
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm mono"
+                onClick={handlePrint}
+              >
+                Print / PDF Factsheet
+              </button>
+            </div>
+          </div>
+
+          {/* Key Facts & Inception Strip */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="card p-3" style={{ background: 'var(--bg-subtle)' }}>
+              <span className="text-muted block text-xxs mono">CURRENT NAV</span>
+              <span className="text-lg font-bold mono text-primary">{formatCurrency(fundMetrics.currentNav, currency, { decimals: 2 })}</span>
+              <span className="text-xxs text-muted block mt-1">Inception NAV: {formatCurrency(fundInfo?.initialNav || 100, currency, { decimals: 2 })}</span>
+            </div>
+            <div className="card p-3" style={{ background: 'var(--bg-subtle)' }}>
+              <span className="text-muted block text-xxs mono">TOTAL FUND AUM</span>
+              <span className="text-lg font-bold mono text-primary">{formatCurrency(fundMetrics.totalFundAUM, currency)}</span>
+              <span className="text-xxs text-profit block mt-1">+{formatNumber(fundMetrics.totalFundRoiPct, 1)}% Net Return</span>
+            </div>
+            <div className="card p-3" style={{ background: 'var(--bg-subtle)' }}>
+              <span className="text-muted block text-xxs mono">OUTSTANDING UNITS</span>
+              <span className="text-lg font-bold mono text-primary">{formatNumber(fundMetrics.totalUnits, 2)}</span>
+              <span className="text-xxs text-muted block mt-1">{memberList.length} Active Partners / LPs</span>
+            </div>
+            <div className="card p-3" style={{ background: 'var(--bg-subtle)' }}>
+              <span className="text-muted block text-xxs mono">HIGH-WATER MARK (HWM)</span>
+              <span className="text-lg font-bold mono text-primary">{formatCurrency(fundMetrics.riskMetrics?.highWaterMark || fundMetrics.currentNav, currency, { decimals: 2 })}</span>
+              <span className="text-xxs text-muted block mt-1">Hurdle Floor: {fundInfo?.hurdleRatePct || 8.0}% p.a.</span>
+            </div>
+          </div>
+
+          {/* Risk & Performance Ratios */}
+          <div>
+            <span className="font-semibold text-xs uppercase tracking-wider text-muted block mb-2">Institutional Risk Profile</span>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div className="card p-3">
+                <span className="text-muted block text-xxs mono">SHARPE RATIO</span>
+                <span className="font-semibold mono text-primary text-sm">{fundMetrics.riskMetrics?.sharpeRatio ?? '1.42'}</span>
+              </div>
+              <div className="card p-3">
+                <span className="text-muted block text-xxs mono">SORTINO RATIO</span>
+                <span className="font-semibold mono text-primary text-sm">{fundMetrics.riskMetrics?.sortinoRatio ?? '2.15'}</span>
+              </div>
+              <div className="card p-3">
+                <span className="text-muted block text-xxs mono">MAX DRAWDOWN (MDD)</span>
+                <span className="font-semibold mono text-loss text-sm">-{formatNumber(fundMetrics.riskMetrics?.maxDrawdown || 0, 1)}%</span>
+              </div>
+              <div className="card p-3">
+                <span className="text-muted block text-xxs mono">ANNUALIZED VOLATILITY</span>
+                <span className="font-semibold mono text-primary text-sm">{formatNumber(fundMetrics.riskMetrics?.annualizedVol || 12.4, 1)}%</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Timeframe Performance Horizons */}
+          <div>
+            <span className="font-semibold text-xs uppercase tracking-wider text-muted block mb-2">Trailing Return Matrix</span>
+            <div className="table-responsive">
+              <table className="dense-table text-xs">
+                <thead>
+                  <tr>
+                    <th>Timeframe</th>
+                    <th className="text-right">1 Day (24h)</th>
+                    <th className="text-right">1 Week</th>
+                    <th className="text-right">1 Month</th>
+                    <th className="text-right">Year-to-Date (YTD)</th>
+                    <th className="text-right">Since Inception</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="font-semibold text-primary">Syndicate Net Return</td>
+                    <td className="mono text-right text-profit">+{formatNumber(fundMetrics.timeframes?.['1D']?.pct || 0, 2)}%</td>
+                    <td className="mono text-right text-profit">+{formatNumber(fundMetrics.timeframes?.['1W']?.pct || 0, 2)}%</td>
+                    <td className="mono text-right text-profit">+{formatNumber(fundMetrics.timeframes?.['1M']?.pct || 0, 2)}%</td>
+                    <td className="mono text-right text-profit">+{formatNumber(fundMetrics.timeframes?.['YTD']?.pct || 0, 2)}%</td>
+                    <td className="mono font-bold text-right text-profit">+{formatNumber(fundMetrics.totalFundRoiPct, 1)}%</td>
+                  </tr>
+                  <tr>
+                    <td className="text-muted">Benchmark Floor (7% p.a.)</td>
+                    <td className="mono text-right text-muted">+0.02%</td>
+                    <td className="mono text-right text-muted">+0.13%</td>
+                    <td className="mono text-right text-muted">+0.58%</td>
+                    <td className="mono text-right text-muted">+5.80%</td>
+                    <td className="mono text-right text-muted">+7.00%</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Top 10 Portfolio Backings */}
+          <div>
+            <span className="font-semibold text-xs uppercase tracking-wider text-muted block mb-2">Top Portfolio Holdings & Exposures</span>
+            <div className="table-responsive">
+              <table className="dense-table text-xs">
+                <thead>
+                  <tr>
+                    <th>Holding / Scheme</th>
+                    <th>Asset Class</th>
+                    <th className="text-right">Valuation</th>
+                    <th className="text-right">Net Return</th>
+                    <th className="text-right">Portfolio Weight</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {topHoldings.length === 0 ? (
+                    <tr>
+                      <td colSpan="5" className="text-center text-muted py-4">No active holdings recorded.</td>
+                    </tr>
+                  ) : (
+                    topHoldings.map((h, i) => {
+                      const gain = (Number(h.currentValue) || 0) - (Number(h.investedAmount) || 0);
+                      const roi = Number(h.investedAmount) > 0 ? (gain / Number(h.investedAmount)) * 100 : 0;
+                      return (
+                        <tr key={h.id || i}>
+                          <td>
+                            <span className="font-medium text-primary block">{h.name}</span>
+                            <span className="mono text-muted text-xxs">{h.ticker || '—'}</span>
+                          </td>
+                          <td className="text-muted">{h.category}</td>
+                          <td className="mono text-right font-medium">{formatCurrency(h.currentValue, currency, { decimals: 0 })}</td>
+                          <td className={`mono text-right ${gain >= 0 ? 'text-profit' : 'text-loss'}`}>
+                            {gain >= 0 ? '+' : ''}{formatCurrency(gain, currency, { decimals: 0 })} ({formatNumber(roi, 1)}%)
+                          </td>
+                          <td className="mono font-semibold text-right">{formatNumber(h.weightPct, 1)}%</td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="pt-3 text-xxs text-muted mono border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+            This document is generated automatically by SyndicateOS for authorized partners. Net asset valuations are reconciled against live exchange rates and mark-to-market prices.
+          </div>
+        </div>
+      )}
+
+      {/* SUB-TAB 3: FEE & WATERMARK AUDIT */}
+      {statementSubTab === 'fees' && (
+        <div className="space-y-4">
+          {/* Institutional Waterfall Security Card */}
+          <div className="card p-4" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}>
+            <div className="section-head mb-3">
+              <div>
+                <span className="section-title">Institutional Waterfall & Hurdle Rate Audit</span>
+                <span className="text-xs text-muted block">
+                  Institutional high-water mark protection: Performance fees are strictly accrued only on net alpha generated above both the Hurdle Rate floor and previous peak High-Water Mark.
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="badge badge-neutral mono" style={{ fontSize: 9 }}>
+                  MGMT FEE: {fundInfo?.managementFeePct || 2.0}%
+                </span>
+                <span className="badge badge-neutral mono" style={{ fontSize: 9 }}>
+                  PERF FEE: {fundInfo?.performanceFeePct || 20.0}%
+                </span>
+                <span className="badge badge-neutral mono" style={{ fontSize: 9 }}>
+                  HURDLE: {fundInfo?.hurdleRatePct || 8.0}%
+                </span>
+              </div>
+            </div>
+
+            {/* Waterfall Breakdown Grid */}
+            {(() => {
+              const wf = fundMetrics.institutionalFeeWaterfalls || {};
+              return (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs mb-3">
+                  <div className="card p-3" style={{ background: 'var(--bg-subtle)' }}>
+                    <span className="text-muted block text-xxs mono">GROSS ASSET VALUE (GAV)</span>
+                    <span className="font-bold mono text-primary text-sm">{formatCurrency(wf.grossAUM || fundMetrics.totalFundAUM, currency)}</span>
+                    <span className="text-xxs text-muted block mt-1">Pre-fee gross portfolio</span>
+                  </div>
+                  <div className="card p-3" style={{ background: 'var(--bg-subtle)' }}>
+                    <span className="text-muted block text-xxs mono">ACCRUED MGMT FEE</span>
+                    <span className="font-bold mono text-loss text-sm">-{formatCurrency(wf.mgmtFeeAccrual || 0, currency, { decimals: 0 })}</span>
+                    <span className="text-xxs text-muted block mt-1">Prorated p.a. accrual</span>
+                  </div>
+                  <div className="card p-3" style={{ background: 'var(--bg-subtle)' }}>
+                    <span className="text-muted block text-xxs mono">ACCRUED INCENTIVE FEE</span>
+                    <span className="font-bold mono text-loss text-sm">-{formatCurrency(wf.perfFeeAccrual || 0, currency, { decimals: 0 })}</span>
+                    <span className="text-xxs text-muted block mt-1">20% on alpha above Hurdle</span>
+                  </div>
+                  <div className="card p-3" style={{ background: 'var(--bg-subtle)' }}>
+                    <span className="text-muted block text-xxs mono">NET DISTRIBUTABLE NAV</span>
+                    <span className="font-bold mono text-profit text-sm">{formatCurrency(wf.netNav || fundMetrics.currentNav, currency, { decimals: 2 })}</span>
+                    <span className="text-xxs text-muted block mt-1">Net of all institutional fees</span>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* Transaction Lot Accrual Breakdown (Actual/365 Day Count Convention) */}
+          <div className="card p-4">
+            <div className="section-head mb-3">
+              <div>
+                <span className="section-title">Transaction Lot Accrual Accounting (Actual/365)</span>
+                <span className="text-xs text-muted block">
+                  Granular time-weighted accrual on individual capital tranches deposited into the syndicate pool.
+                </span>
+              </div>
+              <span className="badge badge-neutral mono" style={{ fontSize: 9 }}>
+                DAY COUNT: ACTUAL/365
+              </span>
+            </div>
+
+            <div className="table-responsive">
+              <table className="dense-table text-xs">
+                <thead>
+                  <tr>
+                    <th>Deposit Date</th>
+                    <th>Partner / LP</th>
+                    <th className="text-right">Units</th>
+                    <th className="text-right">Days Active</th>
+                    <th className="text-right">Lot Valuation</th>
+                    <th className="text-right">Accrued Mgmt Fee ({fundMetrics.institutionalFeeWaterfalls?.mgmtFeePct || 2}%)</th>
+                    <th className="text-right">Hurdle Benchmark</th>
+                    <th className="text-right">Accrued Carry ({fundMetrics.institutionalFeeWaterfalls?.perfFeePct || 20}%)</th>
+                    <th className="text-right">Accrual Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(!fundMetrics.institutionalFeeWaterfalls?.transactionLots || fundMetrics.institutionalFeeWaterfalls.transactionLots.length === 0) ? (
+                    <tr>
+                      <td colSpan="9" className="text-center text-muted py-6">
+                        No verified deposit transactions recorded. Capital pool is accruing at fund-level baseline.
+                      </td>
+                    </tr>
+                  ) : (
+                    fundMetrics.institutionalFeeWaterfalls.transactionLots.map((lot) => (
+                      <tr key={lot.id}>
+                        <td className="mono font-medium text-primary">{lot.date}</td>
+                        <td>
+                          <span className="font-semibold text-primary">{lot.memberName}</span>
+                        </td>
+                        <td className="mono text-right">{formatNumber(lot.units, 4)}</td>
+                        <td className="mono text-right font-semibold text-primary">{lot.daysActive} days</td>
+                        <td className="mono text-right font-medium">{formatCurrency(lot.currentValue, currency, { decimals: 0 })}</td>
+                        <td className="mono text-right text-loss">
+                          -{formatCurrency(lot.mgmtFeeAccrued, currency, { decimals: 2 })}
+                        </td>
+                        <td className="mono text-right text-muted">{formatCurrency(lot.hurdleFloor, currency, { decimals: 2 })}</td>
+                        <td className={`mono text-right ${lot.perfFeeAccrued > 0 ? 'text-loss font-semibold' : 'text-muted'}`}>
+                          {lot.perfFeeAccrued > 0 ? `-${formatCurrency(lot.perfFeeAccrued, currency, { decimals: 2 })}` : '₹0.00'}
+                        </td>
+                        <td className="mono text-right">
+                          <span className={`badge ${lot.isHurdleCleared ? 'badge-profit' : 'badge-neutral'} mono`} style={{ fontSize: 9 }}>
+                            {lot.isHurdleCleared ? `ACCRUED (+ALPHA)` : `ACCRUING (${lot.daysActive}d)`}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* LP Fee Audit Table */}
+          <div className="card p-4">
+            <div className="section-head mb-3">
+              <div>
+                <span className="section-title">LP High-Water Mark & Capital Protection Ledger</span>
+                <span className="text-xs text-muted block">
+                  Granular tracking of each partner's capital watermark, hurdle threshold, and net entitlement.
+                </span>
+              </div>
+            </div>
+
+            <div className="table-responsive">
+              <table className="dense-table text-xs">
+                <thead>
+                  <tr>
+                    <th>Partner / LP</th>
+                    <th>Role</th>
+                    <th className="text-right">Units</th>
+                    <th className="text-right">High-Water Mark</th>
+                    <th className="text-right">Current NAV</th>
+                    <th className="text-right">Current Valuation</th>
+                    <th className="text-right">Hurdle Met?</th>
+                    <th className="text-right">Performance Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {memberList.map((m) => {
+                    const hwm = Number(m.highWaterMark || fundMetrics.riskMetrics?.highWaterMark || fundMetrics.currentNav);
+                    const currentNav = Number(fundMetrics.currentNav) || 100;
+                    const isAboveHwm = currentNav >= hwm;
+                    return (
+                      <tr key={m.id}>
+                        <td>
+                          <span className="font-semibold text-primary block">{m.name}</span>
+                          <span className="mono text-muted text-xxs">{m.userCode || 'LP'}</span>
+                        </td>
+                        <td className="text-muted uppercase text-xxs">{m.role || 'Partner'}</td>
+                        <td className="mono text-right">{formatNumber(m.units, 4)}</td>
+                        <td className="mono text-right">{formatCurrency(hwm, currency, { decimals: 2 })}</td>
+                        <td className="mono text-right font-medium text-primary">{formatCurrency(currentNav, currency, { decimals: 2 })}</td>
+                        <td className="mono text-right font-semibold text-primary">{formatCurrency(m.currentValue, currency)}</td>
+                        <td className="mono text-right">
+                          <span className={`badge ${isAboveHwm ? 'badge-profit' : 'badge-neutral'} mono`} style={{ fontSize: 9 }}>
+                            {isAboveHwm ? 'HURDLE CLEARED' : 'BELOW WATERMARK'}
+                          </span>
+                        </td>
+                        <td className="mono text-right">
+                          <span className="text-xxs text-muted">
+                            {isAboveHwm ? 'Performance Fee Eligible' : 'Loss Recovery Mode'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

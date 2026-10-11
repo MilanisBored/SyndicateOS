@@ -84,6 +84,11 @@ ALTER TABLE transactions ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS verified_by UUID REFERENCES auth.users(id);
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS verification_notes TEXT;
 
+-- Treasury & Cash Reserve accounting: allow native 'cash_adjustment' transaction types
+ALTER TABLE transactions DROP CONSTRAINT IF EXISTS transactions_type_check;
+ALTER TABLE transactions ADD CONSTRAINT transactions_type_check 
+    CHECK (type IN ('deposit', 'withdrawal', 'valuation_update', 'cash_adjustment'));
+
 -- 4. Portfolio Holdings (Underlying assets bought with pooled money)
 CREATE TABLE IF NOT EXISTS holdings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -102,12 +107,36 @@ CREATE TABLE IF NOT EXISTS holdings (
 ALTER TABLE holdings ADD COLUMN IF NOT EXISTS units NUMERIC(18, 6);
 ALTER TABLE holdings ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active';
 ALTER TABLE holdings ADD COLUMN IF NOT EXISTS realized_pnl NUMERIC(15, 2) DEFAULT 0;
-ALTER TABLE holdings ADD COLUMN IF NOT EXISTS closed_at DATE;
-ALTER TABLE holdings ADD COLUMN IF NOT EXISTS native_currency TEXT DEFAULT 'USD';
+ALTER TABLE holdings ADD COLUMN IF NOT EXISTS native_currency TEXT;
 ALTER TABLE holdings ADD COLUMN IF NOT EXISTS exchange TEXT;
 ALTER TABLE holdings ADD COLUMN IF NOT EXISTS isin TEXT;
 ALTER TABLE holdings ADD COLUMN IF NOT EXISTS last_price NUMERIC(20, 6);
 ALTER TABLE holdings ADD COLUMN IF NOT EXISTS last_price_at TIMESTAMPTZ;
+ALTER TABLE holdings ADD COLUMN IF NOT EXISTS sector TEXT;
+ALTER TABLE holdings ADD COLUMN IF NOT EXISTS country TEXT;
+ALTER TABLE holdings ADD COLUMN IF NOT EXISTS asset_class TEXT;
+ALTER TABLE holdings ADD COLUMN IF NOT EXISTS funding_source TEXT DEFAULT 'pool_cash';
+
+-- 4b. Tax-Lot Position Management (FIFO, LIFO, Specific Lot ID)
+CREATE TABLE IF NOT EXISTS holding_lots (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    fund_id UUID REFERENCES funds(id) ON DELETE CASCADE,
+    holding_id UUID REFERENCES holdings(id) ON DELETE CASCADE,
+    purchase_date DATE NOT NULL,
+    units NUMERIC(18, 6) NOT NULL,
+    remaining_units NUMERIC(18, 6) NOT NULL,
+    cost_price NUMERIC(20, 6) NOT NULL,
+    cost_currency TEXT NOT NULL DEFAULT 'INR',
+    status TEXT DEFAULT 'open',
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Institutional Fund Fee & Watermark Architecture
+ALTER TABLE funds ADD COLUMN IF NOT EXISTS management_fee_pct NUMERIC(5, 2) DEFAULT 2.00;
+ALTER TABLE funds ADD COLUMN IF NOT EXISTS performance_fee_pct NUMERIC(5, 2) DEFAULT 20.00;
+ALTER TABLE funds ADD COLUMN IF NOT EXISTS hurdle_rate_pct NUMERIC(5, 2) DEFAULT 8.00;
+ALTER TABLE funds ADD COLUMN IF NOT EXISTS high_water_mark NUMERIC(20, 6) DEFAULT 100.00;
 
 -- 5. Daily NAV History & Snapshots (EOD Time-Series)
 CREATE TABLE IF NOT EXISTS nav_history (
@@ -226,6 +255,8 @@ ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE holdings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE personal_incomes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE personal_solo_assets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE nav_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE holding_lots ENABLE ROW LEVEL SECURITY;
 
 -- Clean existing policies
 DROP POLICY IF EXISTS "Public Read All Funds" ON funds;
@@ -234,6 +265,8 @@ DROP POLICY IF EXISTS "Public Read All Transactions" ON transactions;
 DROP POLICY IF EXISTS "Public Read All Holdings" ON holdings;
 DROP POLICY IF EXISTS "Public Read All Personal Incomes" ON personal_incomes;
 DROP POLICY IF EXISTS "Public Read All Personal Assets" ON personal_solo_assets;
+DROP POLICY IF EXISTS "Nav History Privacy Policy" ON nav_history;
+DROP POLICY IF EXISTS "Holding Lots Privacy Policy" ON holding_lots;
 
 DROP POLICY IF EXISTS "Funds Privacy Policy" ON funds;
 DROP POLICY IF EXISTS "Members Privacy Policy" ON members;
@@ -248,14 +281,12 @@ DROP POLICY IF EXISTS "Personal Solo Assets Privacy Policy" ON personal_solo_ass
 CREATE POLICY "Funds Privacy Policy" ON funds
 FOR ALL
 USING (
-    auth.role() = 'anon'
-    OR owner_id = auth.uid() 
+    owner_id = auth.uid() 
     OR (auth.jwt() ->> 'email' IS NOT NULL AND lower(COALESCE(owner_email, '')) = lower(auth.jwt() ->> 'email'))
     OR id IN (SELECT public.get_member_fund_ids(auth.jwt() ->> 'email'))
 )
 WITH CHECK (
-    auth.role() = 'anon'
-    OR owner_id = auth.uid() 
+    owner_id = auth.uid() 
     OR (auth.jwt() ->> 'email' IS NOT NULL AND lower(COALESCE(owner_email, '')) = lower(auth.jwt() ->> 'email'))
 );
 
@@ -265,12 +296,10 @@ WITH CHECK (
 CREATE POLICY "Members Privacy Policy" ON members
 FOR ALL
 USING (
-    auth.role() = 'anon'
-    OR public.can_access_fund(fund_id, auth.uid(), auth.jwt() ->> 'email')
+    public.can_access_fund(fund_id, auth.uid(), auth.jwt() ->> 'email')
 )
 WITH CHECK (
-    auth.role() = 'anon'
-    OR public.is_fund_owner(fund_id, auth.uid(), auth.jwt() ->> 'email')
+    public.is_fund_owner(fund_id, auth.uid(), auth.jwt() ->> 'email')
 );
 
 -- 3. TRANSACTIONS Policies (Two-Way Acknowledgment)
@@ -286,22 +315,19 @@ DROP POLICY IF EXISTS "Transactions Delete Policy" ON transactions;
 CREATE POLICY "Transactions Select Policy" ON transactions
 FOR SELECT
 USING (
-    auth.role() = 'anon'
-    OR public.can_access_fund(fund_id, auth.uid(), auth.jwt() ->> 'email')
+    public.can_access_fund(fund_id, auth.uid(), auth.jwt() ->> 'email')
 );
 
 CREATE POLICY "Transactions Insert Policy" ON transactions
 FOR INSERT
 WITH CHECK (
-    auth.role() = 'anon'
-    OR public.is_fund_owner(fund_id, auth.uid(), auth.jwt() ->> 'email')
+    public.is_fund_owner(fund_id, auth.uid(), auth.jwt() ->> 'email')
 );
 
 CREATE POLICY "Transactions Update Policy" ON transactions
 FOR UPDATE
 USING (
-    auth.role() = 'anon'
-    OR public.is_fund_owner(fund_id, auth.uid(), auth.jwt() ->> 'email')
+    public.is_fund_owner(fund_id, auth.uid(), auth.jwt() ->> 'email')
     OR (
         member_id IN (
             SELECT id FROM members WHERE fund_id = transactions.fund_id AND lower(email) = lower(auth.jwt() ->> 'email')
@@ -309,8 +335,7 @@ USING (
     )
 )
 WITH CHECK (
-    auth.role() = 'anon'
-    OR public.is_fund_owner(fund_id, auth.uid(), auth.jwt() ->> 'email')
+    public.is_fund_owner(fund_id, auth.uid(), auth.jwt() ->> 'email')
     OR (
         member_id IN (
             SELECT id FROM members WHERE fund_id = transactions.fund_id AND lower(email) = lower(auth.jwt() ->> 'email')
@@ -321,8 +346,7 @@ WITH CHECK (
 CREATE POLICY "Transactions Delete Policy" ON transactions
 FOR DELETE
 USING (
-    auth.role() = 'anon'
-    OR public.is_fund_owner(fund_id, auth.uid(), auth.jwt() ->> 'email')
+    public.is_fund_owner(fund_id, auth.uid(), auth.jwt() ->> 'email')
 );
 
 -- 4. HOLDINGS Policy
@@ -331,25 +355,21 @@ USING (
 CREATE POLICY "Holdings Privacy Policy" ON holdings
 FOR ALL
 USING (
-    auth.role() = 'anon'
-    OR public.can_access_fund(fund_id, auth.uid(), auth.jwt() ->> 'email')
+    public.can_access_fund(fund_id, auth.uid(), auth.jwt() ->> 'email')
 )
 WITH CHECK (
-    auth.role() = 'anon'
-    OR public.is_fund_owner(fund_id, auth.uid(), auth.jwt() ->> 'email')
+    public.is_fund_owner(fund_id, auth.uid(), auth.jwt() ->> 'email')
 );
 
 -- 5. PERSONAL INCOMES: STRICT PRIVACY (User's personal salary is ONLY visible to that user)
 CREATE POLICY "Personal Incomes Privacy Policy" ON personal_incomes
 FOR ALL
 USING (
-    auth.role() = 'anon'
-    OR user_id = auth.uid() 
+    user_id = auth.uid() 
     OR (auth.jwt() ->> 'email' IS NOT NULL AND lower(COALESCE(user_email, '')) = lower(auth.jwt() ->> 'email'))
 )
 WITH CHECK (
-    auth.role() = 'anon'
-    OR user_id = auth.uid() 
+    user_id = auth.uid() 
     OR (auth.jwt() ->> 'email' IS NOT NULL AND lower(COALESCE(user_email, '')) = lower(auth.jwt() ->> 'email'))
 );
 
@@ -357,12 +377,30 @@ WITH CHECK (
 CREATE POLICY "Personal Solo Assets Privacy Policy" ON personal_solo_assets
 FOR ALL
 USING (
-    auth.role() = 'anon'
-    OR user_id = auth.uid() 
+    user_id = auth.uid() 
     OR (auth.jwt() ->> 'email' IS NOT NULL AND lower(COALESCE(user_email, '')) = lower(auth.jwt() ->> 'email'))
 )
 WITH CHECK (
-    auth.role() = 'anon'
-    OR user_id = auth.uid() 
+    user_id = auth.uid() 
     OR (auth.jwt() ->> 'email' IS NOT NULL AND lower(COALESCE(user_email, '')) = lower(auth.jwt() ->> 'email'))
+);
+
+-- 7. NAV HISTORY: Visible to fund members, insert/update by fund manager
+CREATE POLICY "Nav History Privacy Policy" ON nav_history
+FOR ALL
+USING (
+    public.can_access_fund(fund_id, auth.uid(), auth.jwt() ->> 'email')
+)
+WITH CHECK (
+    public.is_fund_owner(fund_id, auth.uid(), auth.jwt() ->> 'email')
+);
+
+-- 8. HOLDING LOTS: Visible to fund members, manageable by fund manager
+CREATE POLICY "Holding Lots Privacy Policy" ON holding_lots
+FOR ALL
+USING (
+    public.can_access_fund(fund_id, auth.uid(), auth.jwt() ->> 'email')
+)
+WITH CHECK (
+    public.is_fund_owner(fund_id, auth.uid(), auth.jwt() ->> 'email')
 );

@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { generateUserCode } from '../utils/navEngine';
+import { generateUserCode, resolveHoldingCurrency } from '../utils/navEngine.js';
 
 export function cleanSupabaseUrl(input) {
   if (!input) return '';
@@ -97,46 +97,17 @@ export function getCachedAuthSession() {
 export async function testSupabaseConnection() {
   const sb = getSupabase();
   if (!sb) {
-    return { success: false, error: 'Supabase URL or Key is missing.' };
+    return { success: false, error: 'Supabase database is not configured.' };
   }
 
   try {
-    const [fRes, mRes, tRes, hRes, iRes, aRes] = await Promise.allSettled([
-      sb.from('funds').select('id, name'),
-      sb.from('members').select('id, name'),
-      sb.from('transactions').select('*'),
-      sb.from('holdings').select('*'),
-      sb.from('personal_incomes').select('*'),
-      sb.from('personal_solo_assets').select('*')
-    ]);
-
-    const funds = fRes.status === 'fulfilled' && !fRes.value.error ? fRes.value.data : [];
-    const members = mRes.status === 'fulfilled' && !mRes.value.error ? mRes.value.data : [];
-    const transactions = tRes.status === 'fulfilled' && !tRes.value.error ? tRes.value.data : [];
-    const holdings = hRes.status === 'fulfilled' && !hRes.value.error ? hRes.value.data : [];
-    const incomes = iRes.status === 'fulfilled' && !iRes.value.error ? iRes.value.data : [];
-    const assets = aRes.status === 'fulfilled' && !aRes.value.error ? aRes.value.data : [];
-
-    const errors = [];
-    if (fRes.status === 'rejected' || fRes.value?.error) errors.push(`funds: ${fRes.value?.error?.message || fRes.reason?.message}`);
-    if (mRes.status === 'rejected' || mRes.value?.error) errors.push(`members: ${mRes.value?.error?.message || mRes.reason?.message}`);
-    if (tRes.status === 'rejected' || tRes.value?.error) errors.push(`transactions: ${tRes.value?.error?.message || tRes.reason?.message}`);
-    if (hRes.status === 'rejected' || hRes.value?.error) errors.push(`holdings: ${hRes.value?.error?.message || hRes.reason?.message}`);
-    if (iRes.status === 'rejected' || iRes.value?.error) errors.push(`incomes: ${iRes.value?.error?.message || iRes.reason?.message}`);
-    if (aRes.status === 'rejected' || aRes.value?.error) errors.push(`assets: ${aRes.value?.error?.message || aRes.reason?.message}`);
-
+    const { data, error } = await sb.from('funds').select('id').limit(1);
+    if (error) {
+      return { success: false, error: error.message };
+    }
     return {
-      success: errors.length === 0,
-      counts: {
-        funds: funds.length,
-        members: members.length,
-        transactions: transactions.length,
-        holdings: holdings.length,
-        incomes: incomes.length,
-        assets: assets.length
-      },
-      memberNames: members.map(m => m.name),
-      errors: errors.length > 0 ? errors.join('; ') : null
+      success: true,
+      status: 'Connected & Operational'
     };
   } catch (err) {
     return { success: false, error: err.message };
@@ -155,14 +126,29 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
     const userEmail = currentUser?.email ? currentUser.email.toLowerCase().trim() : null;
     const userId = currentUser?.id || null;
 
+    // Strict Privacy: Unauthenticated users must NEVER receive existing confidential funds or ledgers!
+    if (!userEmail) {
+      return {
+        fundInfo: { name: 'Syndicate Pool', managerName: 'Manager', initialNav: 100, currency: 'INR', userRole: 'manager' },
+        members: [],
+        transactions: [],
+        holdings: [],
+        personalFinances: { monthlyIncome: [], personalSoloAssets: [] },
+        availableFunds: [],
+        pendingInvitations: []
+      };
+    }
+
     // Fetch all tables concurrently using Promise.allSettled
-    const [fundRes, membersRes, txRes, holdingsRes, incomesRes, soloAssetsRes] = await Promise.allSettled([
+    const [fundRes, membersRes, txRes, holdingsRes, incomesRes, soloAssetsRes, lotsRes, navHistRes] = await Promise.allSettled([
       sb.from('funds').select('*'),
       sb.from('members').select('*'),
       sb.from('transactions').select('*'),
       sb.from('holdings').select('*'),
       sb.from('personal_incomes').select('*'),
-      sb.from('personal_solo_assets').select('*')
+      sb.from('personal_solo_assets').select('*'),
+      sb.from('holding_lots').select('*'),
+      sb.from('nav_history').select('*')
     ]);
 
     const allFunds = fundRes.status === 'fulfilled' && !fundRes.value.error ? (fundRes.value.data || []) : [];
@@ -171,38 +157,43 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
     const allHoldings = holdingsRes.status === 'fulfilled' && !holdingsRes.value.error ? (holdingsRes.value.data || []) : [];
     const allIncomes = incomesRes.status === 'fulfilled' && !incomesRes.value.error ? (incomesRes.value.data || []) : [];
     const allSoloAssets = soloAssetsRes.status === 'fulfilled' && !soloAssetsRes.value.error ? (soloAssetsRes.value.data || []) : [];
+    const allLots = lotsRes.status === 'fulfilled' && !lotsRes.value.error ? (lotsRes.value.data || []) : [];
+    const allNavHistory = navHistRes.status === 'fulfilled' && !navHistRes.value.error ? (navHistRes.value.data || []) : [];
 
-    // All members are actively linked upon addition with their User Code & Gmail
-    function parseMemberStatus() {
-      return 'active';
-    }
+    // Filter accessible funds strictly for the authenticated user
+    let accessibleFunds = allFunds.filter(f => {
+      const ownerEmail = (f.owner_email || '').toLowerCase().trim();
+      if (ownerEmail && ownerEmail === userEmail) return true;
+      if (f.owner_id && userId && f.owner_id === userId) return true;
 
-    // Filter accessible funds for this user
-    let accessibleFunds = [];
+      // Check if user is linked by email in this fund's members
+      const myMemberRecords = allMembers.filter(m => 
+        m.fund_id === f.id && m.email && m.email.toLowerCase().trim() === userEmail
+      );
+      return myMemberRecords.length > 0;
+    });
+
     const pendingInvitations = [];
-
-    if (!userEmail || userEmail === 'dev@localhost' || userEmail.endsWith('@localhost')) {
-      // Local development or unauthenticated: access all available funds
-      accessibleFunds = allFunds;
-    } else {
-      // Authenticated with email:
-      // 1. Funds where user is manager/owner
-      // 2. Funds where user is linked by email as an active investor in this fund's members
-      accessibleFunds = allFunds.filter(f => {
-        const ownerEmail = (f.owner_email || '').toLowerCase().trim();
-        if (ownerEmail && ownerEmail === userEmail) return true;
-        if (f.owner_id && userId && f.owner_id === userId) return true;
-
-        // Check if user is linked by email in this fund's members
-        const myMemberRecords = allMembers.filter(m => 
-          m.fund_id === f.id && m.email && m.email.toLowerCase().trim() === userEmail
-        );
-        return myMemberRecords.length > 0;
-      });
-    }
+    allMembers.forEach(m => {
+      if (m.email && m.email.toLowerCase().trim() === userEmail) {
+        const isPending = m.notes && m.notes.includes('[STATUS: pending]');
+        if (isPending) {
+          const matchingFund = allFunds.find(f => f.id === m.fund_id);
+          if (matchingFund) {
+            pendingInvitations.push({
+              memberId: m.id,
+              fundId: matchingFund.id,
+              fundName: matchingFund.name,
+              managerName: matchingFund.manager_name || 'Manager',
+              role: m.role || 'Investor'
+            });
+          }
+        }
+      }
+    });
 
     // Auto-create a clean, private fund profile for new users with no accessible funds and no pending invitations
-    if (accessibleFunds.length === 0 && pendingInvitations.length === 0 && userEmail) {
+    if (accessibleFunds.length === 0 && pendingInvitations.length === 0) {
       try {
         const userName = currentUser?.user_metadata?.full_name || userEmail.split('@')[0] || 'Fund Manager';
         const newFundPayload = {
@@ -238,15 +229,27 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
     // Determine active fund
     let fund = null;
     if (targetFundId) {
-      fund = accessibleFunds.find(f => f.id === targetFundId) || accessibleFunds[0];
+      fund = accessibleFunds.find(f => f.id === targetFundId) || accessibleFunds[0] || null;
     } else {
       fund = accessibleFunds[0] || null;
     }
 
     const activeFundId = fund?.id || null;
 
+    if (!activeFundId) {
+      return {
+        fundInfo: { name: 'Syndicate Pool', managerName: 'Manager', initialNav: 100, currency: 'INR', userRole: 'manager' },
+        members: [],
+        transactions: [],
+        holdings: [],
+        personalFinances: { monthlyIncome: [], personalSoloAssets: [] },
+        availableFunds: [],
+        pendingInvitations
+      };
+    }
+
     // Filter members strictly by active fund
-    const rawMembers = allMembers.filter(m => !activeFundId || m.fund_id === activeFundId);
+    const rawMembers = allMembers.filter(m => m.fund_id === activeFundId);
     const members = rawMembers.map(m => {
       const isMe = userEmail && m.email && m.email.toLowerCase().trim() === userEmail;
       let userCodeVal = m.user_code || '';
@@ -361,11 +364,7 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
         if (match && match[1]) parsedUnits = Number(match[1]);
       }
 
-      let parsedCurrency = h.native_currency || h.nativeCurrency || h.currency || null;
-      if (!parsedCurrency && h.notes) {
-        const curMatch = String(h.notes).match(/\[CURRENCY:\s*([A-Z]{3})\]/i);
-        if (curMatch && curMatch[1]) parsedCurrency = curMatch[1].toUpperCase();
-      }
+      let parsedCurrency = resolveHoldingCurrency(h, fund?.currency || 'INR');
 
       const investedAmt = Number(h.invested_amount ?? h.investedAmount ?? h.cost_price ?? 0);
       const currentVal = Number(h.current_value ?? h.currentValue ?? h.market_value ?? 0);
@@ -401,6 +400,33 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
         };
       }
 
+      const rawHoldingLots = allLots.filter(l => l.holding_id === h.id || l.holdingId === h.id);
+      const mappedLots = rawHoldingLots.length > 0 ? rawHoldingLots.map(l => ({
+        id: l.id,
+        holdingId: l.holding_id || h.id,
+        fundId: l.fund_id || activeFundId,
+        purchaseDate: l.purchase_date || l.date || (h.created_at ? h.created_at.split('T')[0] : '2026-01-15'),
+        units: Number(l.units || 0),
+        remainingUnits: Number(l.remaining_units ?? l.units ?? 0),
+        costPrice: Number(l.cost_price || 0),
+        costCurrency: l.cost_currency || parsedCurrency,
+        status: l.status || 'open',
+        notes: l.notes || '',
+      })) : [
+        {
+          id: `lot_init_${h.id || idx}`,
+          holdingId: h.id,
+          fundId: activeFundId,
+          purchaseDate: h.created_at ? h.created_at.split('T')[0] : '2026-01-15',
+          units: parsedUnits > 0 ? parsedUnits : 1,
+          remainingUnits: parsedUnits > 0 ? parsedUnits : 1,
+          costPrice: parsedUnits > 0 ? (investedAmt / parsedUnits) : investedAmt,
+          costCurrency: parsedCurrency,
+          status: h.status || 'open',
+          notes: 'Canonical Initial Tax Lot',
+        }
+      ];
+
       return {
         id: h.id,
         ticker: h.ticker || h.symbol || h.name || 'HOLD',
@@ -414,6 +440,7 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
         realizedPnl: Number(h.realized_pnl || 0),
         closedAt: h.closed_at || null,
         notes: h.notes || h.note || '',
+        lots: mappedLots,
         isRedacted: false,
       };
     });
@@ -466,6 +493,12 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
       };
     });
 
+    const storedFees = (typeof localStorage !== 'undefined' && fund?.id)
+      ? (() => {
+          try { return JSON.parse(localStorage.getItem(`syndicate_fund_${fund.id}_fees`) || '{}'); } catch { return {}; }
+        })()
+      : {};
+
     return {
       availableFunds,
       pendingInvitations,
@@ -481,6 +514,10 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
         userRole: isCurrentFundOwner ? 'manager' : 'investor',
         portfolioVisibility,
         myMemberId: currentMemberRecord?.id || null,
+        managementFeePct: Number((fund.management_fee_pct !== null && fund.management_fee_pct !== undefined && Number(fund.management_fee_pct) > 0) ? fund.management_fee_pct : (storedFees.managementFeePct ?? 2.0)),
+        performanceFeePct: Number((fund.performance_fee_pct !== null && fund.performance_fee_pct !== undefined && Number(fund.performance_fee_pct) > 0) ? fund.performance_fee_pct : (storedFees.performanceFeePct ?? 20.0)),
+        hurdleRatePct: Number((fund.hurdle_rate_pct !== null && fund.hurdle_rate_pct !== undefined && Number(fund.hurdle_rate_pct) > 0) ? fund.hurdle_rate_pct : (storedFees.hurdleRatePct ?? 8.0)),
+        highWaterMark: Number(fund.high_water_mark ?? storedFees.highWaterMark ?? (fund.initial_nav || 100.0)),
       } : {
         name: 'Syndicate Pool',
         managerName: 'Manager',
@@ -490,10 +527,16 @@ export async function fetchAllFromSupabase(targetFundId = null, currentUser = nu
         userRole: 'manager',
         portfolioVisibility: 'private',
         myMemberId: null,
+        managementFeePct: 2.0,
+        performanceFeePct: 20.0,
+        hurdleRatePct: 8.0,
+        highWaterMark: 100.0,
       },
       members,
       transactions: validTransactions,
       holdings,
+      holdingLots: allLots,
+      navHistory: allNavHistory.filter(n => !activeFundId || n.fund_id === activeFundId),
       personalFinances: {
         monthlyIncome,
         personalSoloAssets,
@@ -785,12 +828,14 @@ export async function upsertHoldingToSupabase(holding, fundId) {
     }
   }
 
+  const resolvedCur = resolveHoldingCurrency(holding);
   const payload = {
     ticker: holding.ticker || holding.symbol || 'HOLD',
     name: holding.name || holding.ticker || 'Asset Position',
     category: holding.category || 'Mutual Funds',
     invested_amount: Number(holding.investedAmount) || 0,
     current_value: Number(holding.currentValue) || 0,
+    native_currency: resolvedCur,
     notes: notesVal || null,
   };
   if (activeFundId) payload.fund_id = activeFundId;
@@ -813,24 +858,54 @@ export async function upsertHoldingToSupabase(holding, fundId) {
 
   try {
     const { data, error } = await sb.from('holdings').upsert([payload]).select().single();
+    let resolvedData = data;
     if (error) {
-      // If units, status, or realized_pnl columns don't exist yet, strip and retry
-      if (error.message && (error.message.includes('units') || error.message.includes('status') || error.message.includes('realized_pnl'))) {
+      // If units, status, native_currency, or realized_pnl columns don't exist yet, strip and retry
+      if (error.message && (error.message.includes('units') || error.message.includes('status') || error.message.includes('realized_pnl') || error.message.includes('native_currency'))) {
         delete payload.units;
         delete payload.status;
         delete payload.realized_pnl;
+        delete payload.native_currency;
         const { data: retryData, error: retryErr } = await sb.from('holdings').upsert([payload]).select().single();
         if (retryErr) throw retryErr;
-        return retryData;
+        resolvedData = retryData;
+      } else {
+        throw error;
       }
-      throw error;
     }
-    return data;
+
+    // Auto-seed initial holding_lot in database if none exists for this holding
+    if (resolvedData && resolvedData.id && Number(holding.units || resolvedData.units) > 0) {
+      try {
+        const { count } = await sb.from('holding_lots').select('*', { count: 'exact', head: true }).eq('holding_id', resolvedData.id);
+        if (!count || count === 0) {
+          const uVal = Number(holding.units || resolvedData.units || 1);
+          const cVal = Number(holding.investedAmount || resolvedData.invested_amount || 0);
+          const unitPrice = uVal > 0 ? cVal / uVal : cVal;
+          await sb.from('holding_lots').insert([{
+            fund_id: resolvedData.fund_id || activeFundId,
+            holding_id: resolvedData.id,
+            purchase_date: resolvedData.created_at ? resolvedData.created_at.split('T')[0] : new Date().toISOString().split('T')[0],
+            units: uVal,
+            remaining_units: uVal,
+            cost_price: unitPrice,
+            cost_currency: resolvedData.native_currency || 'INR',
+            status: 'open',
+            notes: 'Canonical Position Purchase Lot'
+          }]);
+        }
+      } catch (lotSeedErr) {
+        console.warn('Holding lot sync warning:', lotSeedErr);
+      }
+    }
+
+    return resolvedData;
   } catch (err) {
-    if (err.message && (err.message.includes('units') || err.message.includes('status') || err.message.includes('realized_pnl'))) {
+    if (err.message && (err.message.includes('units') || err.message.includes('status') || err.message.includes('realized_pnl') || err.message.includes('native_currency'))) {
       delete payload.units;
       delete payload.status;
       delete payload.realized_pnl;
+      delete payload.native_currency;
       const { data: retryData, error: retryErr } = await sb.from('holdings').upsert([payload]).select().single();
       if (retryErr) throw retryErr;
       return retryData;
@@ -839,40 +914,258 @@ export async function upsertHoldingToSupabase(holding, fundId) {
   }
 }
 
+/**
+ * Upsert or append a specific tax-lot for a holding directly in PostgreSQL
+ */
+export async function upsertHoldingLotToSupabase(lot, fundId = null) {
+  const sb = getSupabase();
+  if (!sb) return null;
+
+  const payload = {
+    fund_id: lot.fundId || lot.fund_id || fundId,
+    holding_id: lot.holdingId || lot.holding_id,
+    purchase_date: lot.purchaseDate || lot.purchase_date || new Date().toISOString().split('T')[0],
+    units: Number(lot.units) || 0,
+    remaining_units: Number(lot.remainingUnits ?? lot.remaining_units ?? lot.units) || 0,
+    cost_price: Number(lot.costPrice ?? lot.cost_price) || 0,
+    cost_currency: lot.costCurrency || lot.cost_currency || 'INR',
+    status: lot.status || 'open',
+    notes: lot.notes || null,
+  };
+
+  if (lot.id && isValidUUID(lot.id)) {
+    payload.id = lot.id;
+  }
+
+  const { data, error } = await sb.from('holding_lots').upsert([payload]).select().single();
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Delete a specific tax-lot from PostgreSQL
+ */
+export async function deleteHoldingLotFromSupabase(lotId) {
+  const sb = getSupabase();
+  if (!sb || !lotId) return null;
+  const { error } = await sb.from('holding_lots').delete().eq('id', lotId);
+  if (error) throw error;
+  return true;
+}
+
+/**
+ * Execute an institutional trade liquidation / trim against PostgreSQL holding_lots.
+ * Depletes lots using FIFO, LIFO, or HIFO strategy, calculates realized gain/loss,
+ * and updates the holding record and liquid cash ledger.
+ */
+export async function executeHoldingTrimInSupabase({ holdingId, unitsToTrim, exitPrice, strategy = 'FIFO', fundId = null }) {
+  const sb = getSupabase();
+  if (!sb) return null;
+
+  const numUnits = Number(unitsToTrim);
+  const numPrice = Number(exitPrice);
+  if (isNaN(numUnits) || numUnits <= 0) throw new Error('Invalid units to trim');
+  if (isNaN(numPrice) || numPrice <= 0) throw new Error('Invalid exit price');
+
+  // 1. Fetch holding
+  const { data: holding, error: hErr } = await sb.from('holdings').select('*').eq('id', holdingId).single();
+  if (hErr || !holding) throw new Error(`Holding not found: ${hErr?.message || 'Unknown'}`);
+
+  // 2. Fetch open lots for this holding
+  const { data: lots, error: lotsErr } = await sb
+    .from('holding_lots')
+    .select('*')
+    .eq('holding_id', holdingId)
+    .gt('remaining_units', 0)
+    .order('purchase_date', { ascending: true });
+
+  let availableLots = Array.isArray(lots) ? [...lots] : [];
+
+  // If no lots in DB, create initial canonical lot from holding
+  if (availableLots.length === 0) {
+    const currentHoldingUnits = Number(holding.units || 1);
+    const currentHoldingCost = Number(holding.invested_amount || 0);
+    const unitCost = currentHoldingUnits > 0 ? currentHoldingCost / currentHoldingUnits : 0;
+    
+    const { data: seededLot } = await sb.from('holding_lots').insert([{
+      fund_id: holding.fund_id || fundId,
+      holding_id: holdingId,
+      purchase_date: holding.created_at ? holding.created_at.split('T')[0] : '2026-01-15',
+      units: currentHoldingUnits,
+      remaining_units: currentHoldingUnits,
+      cost_price: unitCost,
+      cost_currency: holding.native_currency || 'INR',
+      status: 'open',
+      notes: 'Initial lot auto-seeded on trade trim'
+    }]).select().single();
+
+    if (seededLot) availableLots = [seededLot];
+  }
+
+  // 3. Sort lots based on institutional strategy
+  if (strategy === 'FIFO') {
+    availableLots.sort((a, b) => (a.purchase_date || '').localeCompare(b.purchase_date || ''));
+  } else if (strategy === 'LIFO') {
+    availableLots.sort((a, b) => (b.purchase_date || '').localeCompare(a.purchase_date || ''));
+  } else if (strategy === 'HIFO') {
+    availableLots.sort((a, b) => Number(b.cost_price || 0) - Number(a.cost_price || 0));
+  }
+
+  // 4. Deplete lots
+  let remainingToTrim = numUnits;
+  let totalCostTrimmed = 0;
+  const totalProceeds = numUnits * numPrice;
+  const depletedLotRecords = [];
+
+  for (const lot of availableLots) {
+    if (remainingToTrim <= 0.000001) break;
+    const lotRemaining = Number(lot.remaining_units || 0);
+    if (lotRemaining <= 0.000001) continue;
+
+    const unitsDeducted = Math.min(remainingToTrim, lotRemaining);
+    const costPrice = Number(lot.cost_price || 0);
+    const lotCostTrimmed = unitsDeducted * costPrice;
+    const newRemainingUnits = Math.max(0, lotRemaining - unitsDeducted);
+    const newStatus = newRemainingUnits <= 0.000001 ? 'closed' : 'open';
+
+    totalCostTrimmed += lotCostTrimmed;
+    remainingToTrim -= unitsDeducted;
+
+    // Update lot in DB
+    await sb.from('holding_lots').update({
+      remaining_units: newRemainingUnits,
+      status: newStatus
+    }).eq('id', lot.id);
+
+    depletedLotRecords.push({
+      lotId: lot.id,
+      purchaseDate: lot.purchase_date,
+      unitsDeducted,
+      costPrice,
+      salePrice: numPrice,
+      realizedGain: (unitsDeducted * numPrice) - lotCostTrimmed
+    });
+  }
+
+  const netRealizedGain = totalProceeds - totalCostTrimmed;
+
+  // 5. Update holding table in PostgreSQL
+  const currentUnits = Number(holding.units || 0);
+  const currentInvested = Number(holding.invested_amount || 0);
+  const currentRealized = Number(holding.realized_pnl || 0);
+
+  const updatedUnits = Math.max(0, currentUnits - numUnits);
+  const updatedInvested = Math.max(0, currentInvested - totalCostTrimmed);
+  const updatedCurrentVal = updatedUnits * numPrice;
+  const updatedRealized = currentRealized + netRealizedGain;
+
+  const holdingUpdates = {
+    units: updatedUnits,
+    invested_amount: updatedInvested,
+    current_value: updatedCurrentVal,
+    realized_pnl: updatedRealized,
+  };
+
+  if (updatedUnits <= 0.000001) {
+    holdingUpdates.status = 'closed';
+    holdingUpdates.closed_at = new Date().toISOString();
+  }
+
+  await sb.from('holdings').update(holdingUpdates).eq('id', holdingId);
+
+  return {
+    holdingId,
+    unitsTrimmed: numUnits,
+    totalProceeds,
+    totalCostTrimmed,
+    netRealizedGain,
+    depletedLots: depletedLotRecords,
+    updatedHolding: { ...holding, ...holdingUpdates }
+  };
+}
+
 export async function recordDailyNavSnapshot(fundId, snapshot) {
   const sb = getSupabase();
-  if (!sb || !fundId) return null;
+  const dateStr = snapshot.date || new Date().toISOString().split('T')[0];
+  const payload = {
+    fund_id: fundId,
+    date: dateStr,
+    nav: Number(snapshot.nav ?? snapshot.currentNav) || 100,
+    total_aum: Number(snapshot.totalAum ?? snapshot.totalFundAUM) || 0,
+    total_units: Number(snapshot.totalUnits) || 0,
+    undeployed_cash: Number(snapshot.undeployedCash) || 0,
+    realized_pnl: Number(snapshot.realizedProfit ?? snapshot.realizedPnl) || 0,
+    unrealized_pnl: Number(snapshot.unrealizedProfit ?? snapshot.unrealizedPnl) || 0,
+  };
+
+  // Local storage resilient snapshot cache
+  if (typeof localStorage !== 'undefined' && fundId) {
+    try {
+      const cacheKey = `syndicate_fund_${fundId}_nav_history`;
+      const cached = JSON.parse(localStorage.getItem(cacheKey) || '[]');
+      const filtered = cached.filter(r => r.date !== dateStr);
+      filtered.push(payload);
+      filtered.sort((a, b) => a.date.localeCompare(b.date));
+      localStorage.setItem(cacheKey, JSON.stringify(filtered));
+    } catch {}
+  }
+
+  if (!sb || !fundId) return payload;
+
   try {
-    const payload = {
-      fund_id: fundId,
-      date: snapshot.date || new Date().toISOString().split('T')[0],
-      nav: Number(snapshot.nav) || 100,
-      total_aum: Number(snapshot.totalAum || snapshot.totalFundAUM) || 0,
-      total_units: Number(snapshot.totalUnits) || 0,
-      undeployed_cash: Number(snapshot.undeployedCash) || 0,
-      realized_pnl: Number(snapshot.realizedProfit || snapshot.realizedPnl) || 0,
-      unrealized_pnl: Number(snapshot.unrealizedProfit || snapshot.unrealizedPnl) || 0,
-    };
     const { data, error } = await sb.from('nav_history').upsert([payload], { onConflict: 'fund_id,date' }).select().single();
     if (error) {
-      console.warn('nav_history snapshot notice:', error.message);
-      return null;
+      console.warn('nav_history snapshot notice (using local storage fallback):', error.message);
+      return payload;
     }
     return data;
   } catch (e) {
-    return null;
+    return payload;
   }
 }
 
 export async function fetchNavHistory(fundId) {
+  let localData = [];
+  if (typeof localStorage !== 'undefined' && fundId) {
+    try {
+      localData = JSON.parse(localStorage.getItem(`syndicate_fund_${fundId}_nav_history`) || '[]');
+    } catch {}
+  }
+
   const sb = getSupabase();
-  if (!sb || !fundId) return [];
+  if (!sb || !fundId) return localData;
+
   try {
     const { data, error } = await sb.from('nav_history').select('*').eq('fund_id', fundId).order('date', { ascending: true });
-    if (error) return [];
-    return data || [];
+    if (error || !data || data.length === 0) return localData;
+    return data;
   } catch (e) {
-    return [];
+    return localData;
+  }
+}
+
+export async function updateFundFeeSettings(fundId, settings = {}) {
+  if (typeof localStorage !== 'undefined' && fundId) {
+    localStorage.setItem(`syndicate_fund_${fundId}_fees`, JSON.stringify(settings));
+  }
+  const sb = getSupabase();
+  if (!sb || !fundId) return settings;
+
+  try {
+    const payload = {
+      management_fee_pct: Number(settings.managementFeePct ?? settings.management_fee_pct ?? 0),
+      performance_fee_pct: Number(settings.performanceFeePct ?? settings.performance_fee_pct ?? 0),
+      hurdle_rate_pct: Number(settings.hurdleRatePct ?? settings.hurdle_rate_pct ?? 0),
+      high_water_mark: Number(settings.highWaterMark ?? settings.high_water_mark ?? 100),
+    };
+    const { data, error } = await sb.from('funds').update(payload).eq('id', fundId).select().single();
+    if (error) {
+      console.warn('Fund fee column notice (saved locally):', error.message);
+      return settings;
+    }
+    return data;
+  } catch (e) {
+    return settings;
   }
 }
 
@@ -1026,16 +1319,15 @@ export async function updateFundInSupabase(fundId, info) {
   }
 }
 
-export async function wipeSupabaseDatabase() {
+export async function wipeSupabaseDatabase(fundId) {
   const sb = getSupabase();
-  if (!sb) return false;
+  if (!sb || !fundId) return false;
 
-  // Delete all rows from tables
-  await sb.from('transactions').delete().neq('amount', -999999999);
-  await sb.from('members').delete().neq('name', '___NON_EXISTENT___');
-  await sb.from('holdings').delete().neq('ticker', '___NON_EXISTENT___');
-  await sb.from('personal_incomes').delete().neq('source', '___NON_EXISTENT___');
-  await sb.from('personal_solo_assets').delete().neq('name', '___NON_EXISTENT___');
+  // Isolate deletion strictly to the target fund to preserve multi-tenant safety
+  await sb.from('holding_lots').delete().eq('fund_id', fundId);
+  await sb.from('holdings').delete().eq('fund_id', fundId);
+  await sb.from('transactions').delete().eq('fund_id', fundId);
+  await sb.from('members').delete().eq('fund_id', fundId);
 
   return true;
 }

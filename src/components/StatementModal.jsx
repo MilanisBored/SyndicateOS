@@ -27,9 +27,19 @@ export default function StatementModal({
   const month1 = tf['1M'] || { pct: 0, delta: 0 };
   const ytd = tf['YTD'] || { pct: 0, delta: 0 };
 
-  const dayProfit = (Number(member.units) || 0) * (day1.delta || 0);
-  const mtdProfit = (Number(member.units) || 0) * (month1.delta || 0);
-  const ytdProfit = (Number(member.units) || 0) * (ytd.delta || 0);
+  const maxPossibleGain = Math.max(0, member.totalProfit || 0);
+  const rawDayProfit = (Number(member.units) || 0) * (day1.delta || 0);
+  const dayProfit = (member.totalProfit || 0) <= 0 
+    ? Math.min(0, rawDayProfit) 
+    : Math.min(rawDayProfit, maxPossibleGain);
+
+  const mtdProfit = month1.delta !== 0 
+    ? ((member.totalProfit || 0) <= 0 ? Math.min(0, (Number(member.units) || 0) * month1.delta) : Math.min((Number(member.units) || 0) * month1.delta, maxPossibleGain)) 
+    : (member.totalProfit || 0);
+
+  const ytdProfit = ytd.delta !== 0 
+    ? ((member.totalProfit || 0) <= 0 ? Math.min(0, (Number(member.units) || 0) * ytd.delta) : Math.min((Number(member.units) || 0) * ytd.delta, maxPossibleGain)) 
+    : (member.totalProfit || 0);
 
   const handleCopy = () => {
     const text = generateShareableSummary(member, fundInfo, effectiveNav);
@@ -257,6 +267,56 @@ export default function StatementModal({
               </tbody>
             </table>
           </div>
+
+          {/* Granular Capital Lots Audit (Actual/365 Day Count) */}
+          {member.capitalLots && member.capitalLots.length > 0 && (
+            <div className="mt-4">
+              <div className="section-head mb-2">
+                <span className="section-title">Capital Lots & Hurdle Benchmark Audit (Actual/365)</span>
+                <span className="badge badge-neutral mono" style={{ fontSize: 9 }}>FIFO DEPLETION</span>
+              </div>
+              <div className="table-responsive">
+                <table className="dense-table w-full text-xs">
+                  <thead>
+                    <tr>
+                      <th>Lot Date</th>
+                      <th className="text-right">Active Days</th>
+                      <th className="text-right">Units</th>
+                      <th className="text-right">Capital</th>
+                      <th className="text-right">Valuation</th>
+                      <th className="text-right">Deposit NAV</th>
+                      <th className="text-right">Hurdle Floor</th>
+                      <th className="text-right">Accrued Mgmt</th>
+                      <th className="text-right">Accrued Carry</th>
+                      <th className="text-center">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {member.capitalLots.map((lot, idx) => (
+                      <tr key={lot.id || idx}>
+                        <td className="mono font-medium">{lot.date}</td>
+                        <td className="mono text-right text-muted">{lot.daysActive}d</td>
+                        <td className="mono text-right">{formatNumber(lot.remainingUnits, 4)}</td>
+                        <td className="mono text-right">{formatCurrency(lot.remainingAmount, currency, { decimals: 0 })}</td>
+                        <td className="mono font-semibold text-right">{formatCurrency(lot.currentValue, currency, { decimals: 0 })}</td>
+                        <td className="mono text-right text-muted">{formatCurrency(lot.entryNav, currency, { decimals: 2 })}</td>
+                        <td className="mono text-right text-muted">{formatCurrency(lot.hurdleFloorNav, currency, { decimals: 2 })}</td>
+                        <td className="mono text-right text-loss">-{formatCurrency(lot.accruedMgmtFee, currency, { decimals: 2 })}</td>
+                        <td className={`mono text-right ${lot.accruedCarry > 0 ? 'text-loss font-semibold' : 'text-muted'}`}>
+                          {lot.accruedCarry > 0 ? `-${formatCurrency(lot.accruedCarry, currency, { decimals: 2 })}` : '₹0.00'}
+                        </td>
+                        <td className="text-center">
+                          <span className={`badge ${lot.status === 'redeemed' ? 'badge-loss' : (lot.isHurdleCleared ? 'badge-profit' : 'badge-neutral')} mono`} style={{ fontSize: 9 }}>
+                            {lot.status === 'redeemed' ? 'REDEEMED' : (lot.isHurdleCleared ? '+ALPHA' : 'ACCRUING')}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* Activity Table */}
           <div className="section-head mt-4">
