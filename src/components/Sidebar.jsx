@@ -216,11 +216,16 @@ export default function Sidebar({
             </div>
             <ul className="sidebar-nav-list">
               {section.items.map((item) => {
-                const isTabActive = activeTab === item.tab;
-                const isSubActive = activeSubTab 
-                  ? activeSubTab === item.subTab 
-                  : (item.subTab === 'cockpit' || item.subTab === 'positions' || item.subTab === 'captable' || item.subTab === 'fees' || item.subTab === 'assets' || item.subTab === 'parameters');
-                const isItemActive = isTabActive && (activeSubTab ? activeSubTab === item.subTab : true);
+                const defaultSubTabMap = {
+                  dashboard: 'cockpit',
+                  holdings: 'positions',
+                  syndicate: 'captable',
+                  statements: 'fees',
+                  personal: 'assets',
+                  settings: 'parameters'
+                };
+                const currentResolvedSub = activeSubTab || defaultSubTabMap[activeTab] || null;
+                const isItemActive = activeTab === item.tab && (item.subTab ? item.subTab === currentResolvedSub : true);
 
                 return (
                   <li key={item.id}>
